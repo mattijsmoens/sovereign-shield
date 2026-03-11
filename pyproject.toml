@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sovereign-shield"
+version = "1.0.4"
+description = "AI security framework: prompt injection firewall, tamper-proof integrity verification, ethical guardrails, and DDoS protection."
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.8"
+authors = [
+    {name = "Mattijs Moens"}
+]
+keywords = [
+    "ai-security",
+    "prompt-injection",
+    "firewall",
+    "llm-security",
+    "content-moderation",
+    "input-validation",
+    "tamper-detection",
+    "rate-limiting",
+    "ethical-ai",
+    "jailbreak-prevention"
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+
+
+
+[project.urls]
+Homepage = "https://github.com/mattijsmoens/sovereign-shield"
+Documentation = "https://github.com/mattijsmoens/sovereign-shield#readme"
+Issues = "https://github.com/mattijsmoens/sovereign-shield/issues"
+
+[tool.setuptools.packages.find]
+include = ["sovereign_shield*"]
