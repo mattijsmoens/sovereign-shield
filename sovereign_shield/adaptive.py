@@ -4,8 +4,10 @@ AdaptiveShield — Self-improving security filter.
 All-in-one class that wraps SovereignShield's InputFilter with:
   - Local SQLite storage for scan history
   - Report endpoint for missed attacks
+  - Category-based keyword extraction and classification
   - Sandbox replay to validate candidate rules
   - Auto-deployment of validated rules at runtime
+  - Self-expanding minefield: one report blocks an entire attack class
 
 Zero cloud dependencies. Works entirely offline.
 """
@@ -21,6 +23,54 @@ from typing import Optional, List, Set, Dict
 from .input_filter import InputFilter, DEFAULT_BAD_SIGNALS
 
 logger = logging.getLogger("adaptive_shield")
+
+# Predefined attack category keyword clusters
+ATTACK_CATEGORIES: Dict[str, List[str]] = {
+    "exfiltration": [
+        "extract", "dump", "reveal", "show", "leak", "expose", "export",
+        "steal", "exfiltrate", "copy", "send", "transmit", "email",
+    ],
+    "injection": [
+        "execute", "run", "eval", "system", "shell", "cmd", "exec",
+        "subprocess", "popen", "os.system", "bash", "powershell",
+    ],
+    "impersonation": [
+        "i am the admin", "override", "bypass", "emergency", "disable",
+        "i am authorized", "maintenance mode", "superuser",
+    ],
+    "encoding_bypass": [
+        "base64", "hex", "unicode", "encode", "decode", "rot13",
+        "binary", "obfuscate", "encrypt",
+    ],
+    "data_access": [
+        "password", "credential", "secret", "api key", "token",
+        "config", "connection string", "private key", "certificate",
+    ],
+    "persistence": [
+        "scheduled", "cron", "recurring", "backdoor", "persist",
+        "reverse shell", "callback", "webhook",
+    ],
+    "destruction": [
+        "delete", "drop", "truncate", "destroy", "wipe", "erase",
+        "format", "rm -rf", "purge", "remove all",
+    ],
+}
+
+# Common stopwords to filter out during keyword extraction
+_STOPWORDS = {
+    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "could",
+    "should", "may", "might", "can", "shall", "to", "of", "in", "for",
+    "on", "with", "at", "by", "from", "as", "into", "through", "about",
+    "and", "but", "or", "nor", "not", "so", "yet", "both", "either",
+    "neither", "this", "that", "these", "those", "it", "its", "my",
+    "your", "his", "her", "our", "their", "me", "him", "us", "them",
+    "i", "you", "he", "she", "we", "they", "what", "which", "who",
+    "how", "when", "where", "why", "all", "each", "every", "some",
+    "any", "no", "just", "also", "very", "too", "please", "then",
+    "now", "here", "there", "up", "out", "if", "than", "after",
+    "before", "above", "below", "between", "under", "over",
+}
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS scan_log (
@@ -51,6 +101,14 @@ CREATE TABLE IF NOT EXISTS rules (
     created_at REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS attack_categories (
+    category TEXT NOT NULL,
+    keyword TEXT NOT NULL,
+    source_report_id TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    PRIMARY KEY (category, keyword)
+);
+
 CREATE INDEX IF NOT EXISTS idx_scan_allowed ON scan_log(allowed);
 """
 
@@ -75,11 +133,13 @@ class AdaptiveShield:
         fp_threshold: float = 0.01,
         retention_days: int = 30,
         auto_deploy: bool = True,
+        allow_pruning: bool = True,
     ):
         self._db_path = db_path
         self._fp_threshold = fp_threshold
         self._retention_days = retention_days
         self._auto_deploy = auto_deploy
+        self._allow_pruning = allow_pruning
         self._lock = threading.Lock()
 
         # Built-in filter
@@ -88,14 +148,20 @@ class AdaptiveShield:
             signals.extend(extra_keywords)
         self._filter = InputFilter(bad_signals=signals)
 
-        # Custom rules loaded from DB
+        # Custom rules loaded from DB (legacy exact-match patterns)
         self._custom_rules: Set[str] = set()
+
+        # Category keywords loaded from DB (v2 self-expanding minefield)
+        self._category_keywords: Dict[str, Set[str]] = {}
 
         # Init database
         self._init_db()
 
         # Load any previously approved rules
         self._load_approved_rules()
+
+        # Load learned category keywords
+        self._load_category_keywords()
 
         # Cleanup old entries
         self._cleanup(self._retention_days)
@@ -126,6 +192,25 @@ class AdaptiveShield:
         if self._custom_rules:
             logger.info(f"Loaded {len(self._custom_rules)} custom rules from database.")
 
+    def _load_category_keywords(self):
+        """Load learned category keywords from the database."""
+        conn = self._get_conn()
+        cur = conn.cursor()
+        try:
+            cur.execute("SELECT category, keyword FROM attack_categories")
+            for row in cur.fetchall():
+                cat = row["category"]
+                kw = row["keyword"].lower()
+                if cat not in self._category_keywords:
+                    self._category_keywords[cat] = set()
+                self._category_keywords[cat].add(kw)
+        except sqlite3.OperationalError:
+            pass  # Table may not exist yet on first run
+        conn.close()
+        total = sum(len(v) for v in self._category_keywords.values())
+        if total:
+            logger.info(f"Loaded {total} category keywords across {len(self._category_keywords)} categories.")
+
     def _cleanup(self, days: int):
         cutoff = time.time() - (days * 86400)
         conn = self._get_conn()
@@ -147,16 +232,30 @@ class AdaptiveShield:
         scan_id = uuid.uuid4().hex[:12]
         start = time.perf_counter()
 
-        # Layer 1: Built-in filter
+        # Layer 1: Built-in filter (includes multi-decode + multilingual)
         is_safe, result = self._filter.process(text)
 
-        # Layer 2: Custom adaptive rules
+        # Layer 2a: Legacy custom adaptive rules (exact substring match)
         if is_safe and self._custom_rules:
             text_lower = text.lower()
             for rule in self._custom_rules:
                 if rule in text_lower:
                     is_safe = False
                     result = f"Blocked by adaptive rule: matched '{rule}'"
+                    break
+
+        # Layer 2b: Category keyword matching (v2 self-expanding minefield)
+        # Merge predefined categories with learned keywords for full coverage
+        if is_safe and self._category_keywords:
+            text_lower = text.lower()
+            for category, learned_kws in self._category_keywords.items():
+                # Combine predefined + learned keywords for this category
+                all_kws = learned_kws | set(ATTACK_CATEGORIES.get(category, []))
+                matched = [kw for kw in all_kws if kw in text_lower]
+                if len(matched) >= 2:  # Require 2+ keyword matches to reduce FP
+                    is_safe = False
+                    result = (f"Blocked by category '{category}': "
+                              f"matched {matched[:3]}")
                     break
 
         stage = "Approved" if is_safe else "InputFilter"
@@ -238,32 +337,64 @@ class AdaptiveShield:
             conn.commit()
             conn.close()
 
-        # Candidate pattern = full input lowercased
-        pattern = input_text.strip().lower()
+        # --- V2: Keyword extraction + category classification ---
+        keywords = self._extract_keywords(input_text)
+        category, matched_cat_keywords = self._classify_attack(keywords)
 
-        # Sandbox replay (exclude the reported scan itself)
+        # Save keywords to category (the self-expanding minefield)
+        new_keywords = []
+        if category:
+            with self._lock:
+                conn = self._get_conn()
+                for kw in keywords:
+                    try:
+                        conn.execute(
+                            "INSERT OR IGNORE INTO attack_categories "
+                            "(category, keyword, source_report_id, created_at) "
+                            "VALUES (?, ?, ?, ?)",
+                            (category, kw.lower(), report_id, time.time()),
+                        )
+                        if kw.lower() not in self._category_keywords.get(category, set()):
+                            new_keywords.append(kw)
+                    except sqlite3.IntegrityError:
+                        pass
+                conn.commit()
+                conn.close()
+
+            # Update in-memory category keywords
+            if category not in self._category_keywords:
+                self._category_keywords[category] = set()
+            for kw in keywords:
+                self._category_keywords[category].add(kw.lower())
+
+        # Legacy: also store as exact-match rule for backward compatibility
+        pattern = input_text.strip().lower()
         sandbox = self._replay(pattern, exclude_scan_id=scan_id)
 
         rule_id = uuid.uuid4().hex[:12]
         passes_threshold = sandbox["false_positive_rate"] <= self._fp_threshold
 
+        cat_info = (f" Category: '{category}', "
+                    f"{len(new_keywords)} new keywords added.") if category else ""
+
         if passes_threshold and self._auto_deploy:
-            # Auto-approve and deploy immediately
             self._save_rule(rule_id, pattern, report_id, sandbox, "approved")
             self._custom_rules.add(pattern)
-            logger.info(f"Auto-approved rule '{pattern}' (FP: {sandbox['false_positive_rate']})")
+            logger.info(f"Auto-approved rule + category '{category}' "
+                        f"(FP: {sandbox['false_positive_rate']})")
 
             return {
                 "report_id": report_id,
                 "status": "auto_approved",
                 "rule_created": True,
+                "category": category,
+                "new_keywords": new_keywords,
                 "sandbox_result": sandbox,
-                "message": f"Rule deployed. Pattern will now be blocked. "
+                "message": f"Rule deployed.{cat_info} "
                            f"Tested against {sandbox['total_tested']} scans, "
                            f"FP rate: {sandbox['false_positive_rate']*100:.1f}%.",
             }
         elif passes_threshold and not self._auto_deploy:
-            # Passes threshold but user wants manual review
             self._save_rule(rule_id, pattern, report_id, sandbox, "pending")
             logger.info(f"Rule '{pattern}' ready for approval (auto_deploy=False)")
 
@@ -271,23 +402,163 @@ class AdaptiveShield:
                 "report_id": report_id,
                 "status": "ready_for_approval",
                 "rule_created": False,
+                "category": category,
+                "new_keywords": new_keywords,
                 "sandbox_result": sandbox,
-                "message": f"Rule passed validation (FP: {sandbox['false_positive_rate']*100:.1f}%). "
+                "message": f"Rule passed validation.{cat_info} "
+                           f"FP: {sandbox['false_positive_rate']*100:.1f}%. "
                            f"Call approve_rule('{rule_id}') to deploy it.",
             }
         else:
-            # Too many false positives
             self._save_rule(rule_id, pattern, report_id, sandbox, "pending")
-            logger.info(f"Rule '{pattern}' pending review (FP: {sandbox['false_positive_rate']})")
+            logger.info(f"Rule '{pattern}' pending review "
+                        f"(FP: {sandbox['false_positive_rate']})")
 
             return {
                 "report_id": report_id,
                 "status": "pending_review",
                 "rule_created": False,
+                "category": category,
+                "new_keywords": new_keywords,
                 "sandbox_result": sandbox,
-                "message": f"Rule needs review. Would cause {sandbox['would_block']} "
-                           f"false positives out of {sandbox['total_tested']} scans "
-                           f"({sandbox['false_positive_rate']*100:.1f}% FP rate).",
+                "message": f"Rule needs review.{cat_info} "
+                           f"Would cause {sandbox['would_block']} FPs "
+                           f"({sandbox['false_positive_rate']*100:.1f}% rate).",
+            }
+
+    # ------------------------------------------------------------------
+    # REPORT FALSE POSITIVE (self-pruning)
+    # ------------------------------------------------------------------
+
+    def report_false_positive(self, scan_id: str, reason: str = "") -> dict:
+        """
+        Report a false positive (a clean input that was wrongly blocked).
+
+        The system will:
+        1. Look up the original blocked scan
+        2. Identify which LEARNED category keywords caused the block
+        3. Remove those keywords from the category (DB + memory)
+        4. Predefined ATTACK_CATEGORIES keywords are NEVER removed
+
+        Args:
+            scan_id: The scan_id from a previous scan() call that was blocked
+            reason: Why this was a false positive (optional, for logging)
+
+        Returns:
+            dict with: status, pruned_keywords, category, message
+        """
+        # Block pruning if disabled or in manual mode
+        if not self._allow_pruning or not self.auto_deploy:
+            # Still log the false positive report for admin review
+            with self._lock:
+                conn = self._get_conn()
+                conn.execute(
+                    "INSERT INTO reports (report_id, scan_id, reported_input, reason, timestamp, status) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (uuid.uuid4().hex[:12], scan_id, "",
+                     f"FALSE_POSITIVE_PENDING: {reason}" if reason else "FALSE_POSITIVE_PENDING",
+                     time.time(), "pending_prune"),
+                )
+                conn.commit()
+                conn.close()
+            return {
+                "status": "pending_review",
+                "pruned_keywords": [],
+                "category": None,
+                "message": "Manual mode is active. False positive logged for admin review. "
+                           "Use approve_prune(scan_id) to execute the pruning.",
+            }
+
+        conn = self._get_conn()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT input_text, allowed, reason FROM scan_log WHERE scan_id = ?",
+            (scan_id,),
+        )
+        row = cur.fetchone()
+        conn.close()
+
+        if not row:
+            return {"status": "error", "pruned_keywords": [],
+                    "message": "Scan ID not found."}
+
+        if row["allowed"]:
+            return {"status": "error", "pruned_keywords": [],
+                    "message": "This scan was allowed. Only blocked scans can be reported as false positives."}
+
+        input_text = row["input_text"]
+        block_reason = row["reason"]
+
+        # Find which category keywords caused the block
+        text_lower = input_text.lower()
+        pruned = []
+        pruned_category = None
+
+        for category, learned_kws in list(self._category_keywords.items()):
+            # Get predefined keywords for this category (these are NEVER removed)
+            predefined = set(ATTACK_CATEGORIES.get(category, []))
+
+            # Find all keywords that matched in this input
+            all_kws = learned_kws | predefined
+            matched = [kw for kw in all_kws if kw in text_lower]
+
+            if len(matched) >= 2:
+                # This is the category that caused the block
+                pruned_category = category
+
+                # Only prune LEARNED keywords that matched, NOT predefined ones
+                to_prune = [kw for kw in matched if kw in learned_kws and kw not in predefined]
+
+                if to_prune:
+                    with self._lock:
+                        conn = self._get_conn()
+                        for kw in to_prune:
+                            conn.execute(
+                                "DELETE FROM attack_categories WHERE category = ? AND keyword = ?",
+                                (category, kw),
+                            )
+                            learned_kws.discard(kw)
+                            pruned.append(kw)
+                        conn.commit()
+                        conn.close()
+
+                    # Clean up empty categories
+                    if not learned_kws:
+                        del self._category_keywords[category]
+
+                    logger.info(
+                        f"Pruned {len(to_prune)} keywords from '{category}': {to_prune}"
+                    )
+                break
+
+        # Log the false positive report
+        with self._lock:
+            conn = self._get_conn()
+            conn.execute(
+                "INSERT INTO reports (report_id, scan_id, reported_input, reason, timestamp, status) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (uuid.uuid4().hex[:12], scan_id, input_text,
+                 f"FALSE_POSITIVE: {reason}" if reason else "FALSE_POSITIVE",
+                 time.time(), "false_positive"),
+            )
+            conn.commit()
+            conn.close()
+
+        if pruned:
+            return {
+                "status": "pruned",
+                "pruned_keywords": pruned,
+                "category": pruned_category,
+                "message": f"Removed {len(pruned)} learned keywords from '{pruned_category}': "
+                           f"{pruned}. Predefined keywords were preserved.",
+            }
+        else:
+            return {
+                "status": "no_action",
+                "pruned_keywords": [],
+                "category": pruned_category,
+                "message": "Block was caused by predefined keywords (not learned). "
+                           "No keywords were removed — predefined rules are immutable.",
             }
 
     # ------------------------------------------------------------------
@@ -331,6 +602,67 @@ class AdaptiveShield:
             )
             conn.commit()
             conn.close()
+
+    # ------------------------------------------------------------------
+    # KEYWORD EXTRACTION + CLASSIFICATION
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _extract_keywords(text: str) -> List[str]:
+        """
+        Extract meaningful keywords from attack text.
+
+        Filters stopwords and short words, returns unique keywords
+        that could be used for category-based matching.
+        """
+        words = text.lower().split()
+        keywords = []
+        seen = set()
+        for word in words:
+            # Strip common punctuation
+            clean = word.strip('.,!?;:\'"()[]{}/')
+            if (len(clean) >= 3
+                    and clean not in _STOPWORDS
+                    and clean not in seen):
+                keywords.append(clean)
+                seen.add(clean)
+        return keywords
+
+    @staticmethod
+    def _classify_attack(keywords: List[str]) -> tuple:
+        """
+        Classify extracted keywords into an attack category.
+
+        Matches keywords against predefined ATTACK_CATEGORIES.
+        Returns (category_name, matched_keywords) or (None, []) if
+        no category matches.
+
+        If no existing category matches, creates a dynamic category
+        name from the first two keywords.
+        """
+        best_cat = None
+        best_matches: List[str] = []
+        best_score = 0
+
+        for cat, cat_keywords in ATTACK_CATEGORIES.items():
+            matches = [kw for kw in keywords if kw in cat_keywords]
+            if len(matches) > best_score:
+                best_score = len(matches)
+                best_cat = cat
+                best_matches = matches
+
+        if best_score >= 1:
+            return best_cat, best_matches
+
+        # No known category matched — create a new dynamic one
+        if len(keywords) >= 2:
+            dynamic_cat = f"learned_{keywords[0]}_{keywords[1]}"
+            return dynamic_cat, []
+        elif keywords:
+            dynamic_cat = f"learned_{keywords[0]}"
+            return dynamic_cat, []
+
+        return None, []
 
     # ------------------------------------------------------------------
     # ADMIN HELPERS

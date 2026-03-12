@@ -10,9 +10,10 @@ Zero external dependencies — pure Python stdlib.
 Original Source: KAIROS Autonomous Intelligence System (modules/sensory_cortex.py)
 """
 
+import codecs
 import logging
-import unicodedata
 import re
+import unicodedata
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,56 @@ DEFAULT_BAD_SIGNALS = [
     "IGNORE SAFETY", "IGNORE RULES", "IGNORE GUIDELINES",
     "RESET CONTEXT", "CLEAR CONTEXT", "START OVER",
 ]
+
+# Multilingual prompt injection keywords — top 10 languages by internet usage
+MULTILINGUAL_BAD_SIGNALS = [
+    # Spanish
+    "IGNORAR INSTRUCCIONES", "IGNORAR ANTERIORES", "MODO ADMINISTRADOR",
+    "INDICADOR DEL SISTEMA", "BORRAR BASE DE DATOS", "MODO DESARROLLADOR",
+    "ACCESO ADMINISTRADOR", "IGNORAR REGLAS", "IGNORAR TODO",
+    # French
+    "IGNORER INSTRUCTIONS", "IGNORER PRÉCÉDENTES", "INVITE SYSTÈME",
+    "MODE ADMINISTRATEUR", "SUPPRIMER BASE DE DONNÉES", "MODE DÉVELOPPEUR",
+    "ACCÈS ADMINISTRATEUR", "IGNORER RÈGLES", "IGNORER TOUT",
+    # German
+    "IGNORIERE ANWEISUNGEN", "IGNORIERE VORHERIGE", "SYSTEMAUFFORDERUNG",
+    "ADMIN ZUGANG", "DATENBANK LÖSCHEN", "ENTWICKLERMODUS",
+    "IGNORIERE REGELN", "IGNORIERE ALLES", "ÜBERSCHREIBE ALLES",
+    # Portuguese
+    "IGNORAR INSTRUÇÕES", "IGNORAR ANTERIORES", "PROMPT DO SISTEMA",
+    "MODO ADMINISTRADOR", "APAGAR BANCO DE DADOS", "MODO DESENVOLVEDOR",
+    "ACESSO ADMINISTRADOR", "IGNORAR REGRAS", "IGNORAR TUDO",
+    # Chinese (Simplified)
+    "忽略指令", "忽略之前的", "系统提示", "管理员访问", "删除数据库",
+    "开发者模式", "忽略规则", "忽略所有", "越狱",
+    # Japanese
+    "指示を無視", "以前の指示を無視", "システムプロンプト", "管理者アクセス",
+    "データベースを削除", "開発者モード", "ルールを無視", "すべてを無視",
+    # Korean
+    "지시를 무시", "이전 지시를 무시", "시스템 프롬프트", "관리자 접근",
+    "데이터베이스 삭제", "개발자 모드", "규칙 무시", "모두 무시",
+    # Russian
+    "ИГНОРИРОВАТЬ ИНСТРУКЦИИ", "ИГНОРИРОВАТЬ ПРЕДЫДУЩИЕ", "СИСТЕМНЫЙ ПРОМПТ",
+    "ДОСТУП АДМИНИСТРАТОРА", "УДАЛИТЬ БАЗУ ДАННЫХ", "РЕЖИМ РАЗРАБОТЧИКА",
+    "ИГНОРИРОВАТЬ ПРАВИЛА", "ИГНОРИРОВАТЬ ВСЕ",
+    # Arabic
+    "تجاهل التعليمات", "تجاهل السابقة", "موجه النظام", "وصول المسؤول",
+    "حذف قاعدة البيانات", "وضع المطور", "تجاهل القواعد", "تجاهل الكل",
+    # Hindi
+    "निर्देशों को अनदेखा करें", "पिछले निर्देशों को अनदेखा करें",
+    "सिस्टम प्रॉम्प्ट", "एडमिन एक्सेस", "डेटाबेस हटाएं",
+    "डेवलपर मोड", "नियमों को अनदेखा करें", "सब अनदेखा करें",
+]
+
+# Merge multilingual into defaults so both InputFilter and AdaptiveShield benefit
+DEFAULT_BAD_SIGNALS = DEFAULT_BAD_SIGNALS + MULTILINGUAL_BAD_SIGNALS
+
+# Leet speak character mapping for normalization
+_LEET_MAP = {
+    '0': 'O', '1': 'I', '3': 'E', '4': 'A', '5': 'S',
+    '7': 'T', '@': 'A', '$': 'S', '!': 'I', '(': 'C',
+    '+': 'T', '|': 'I',
+}
 
 
 class InputFilter:
@@ -137,6 +188,14 @@ class InputFilter:
             logger.warning(f"[InputFilter] Blocked prompt injection keyword: {text[:50]}...")
             return False, "Prompt injection detected."
 
+        # --- Layer 6.5: Multi-Decode Expansion ---
+        # Run multiple decodings of the input through the same keyword check.
+        # Catches ROT13, reversed, leet speak, whitespace-smuggled, and pig latin.
+        for variant in self._multi_decode(text):
+            if any(bad in variant.upper() for bad in self.bad_signals):
+                logger.warning(f"[InputFilter] Blocked encoded injection (multi-decode): {text[:50]}...")
+                return False, "Encoded prompt injection detected (multi-decode)."
+
         # --- Layer 7: Safe Keyword Bypass ---
         # If the input contains a whitelisted keyword (e.g. internal tool name),
         # pass through immediately.
@@ -170,6 +229,90 @@ class InputFilter:
             '\u0441': 'c', '\u0443': 'y', '\u0445': 'x',
         }
         return ''.join(_HOMOGLYPHS.get(c, c) for c in text)
+
+    @staticmethod
+    def _multi_decode(text):
+        """
+        Generate decoded variants of the input for multi-decode checking.
+
+        Produces up to 5 alternative decodings:
+            1. ROT13 (catches encoded instructions)
+            2. Reversed string (catches backwards text)
+            3. Leet speak normalized (1GN0R3 → IGNORE)
+            4. Whitespace stripped (I G N O R E → IGNORE)
+            5. Pig Latin stripped (IGNOREWAY → IGNORE)
+
+        Returns:
+            list[str]: Decoded variants (excludes the original).
+        """
+        variants = []
+
+        # 1. ROT13
+        try:
+            rot13 = codecs.decode(text, 'rot_13')
+            if rot13 != text:
+                variants.append(rot13)
+        except Exception:
+            pass
+
+        # 2. Reversed
+        reversed_text = text[::-1]
+        if reversed_text != text:
+            variants.append(reversed_text)
+
+        # 3. Leet speak normalization
+        leet_normalized = ''.join(_LEET_MAP.get(c, c) for c in text)
+        if leet_normalized != text:
+            variants.append(leet_normalized)
+
+        # 4. Whitespace collapse (defeats "I G N O R E" letter-spacing smuggling)
+        # Detect letter-spaced text: single chars separated by single spaces.
+        # Multi-space gaps (2+) are treated as word separators.
+        # "I G N O R E  P R E V I O U S" → "IGNORE PREVIOUS"
+        parts = re.split(r'(\s{2,})', text)  # Split on 2+ spaces, keeping separators
+        collapsed_parts = []
+        any_collapsed = False
+        for part in parts:
+            if re.match(r'^\s+$', part):
+                # Multi-space gap → becomes single space (word boundary)
+                collapsed_parts.append(' ')
+            else:
+                # Check if this segment is letter-spaced (single chars with single spaces)
+                no_spaces = re.sub(r'\s', '', part)
+                if len(no_spaces) > 2 and re.match(r'^(\S\s)*\S$', part):
+                    collapsed_parts.append(no_spaces)
+                    any_collapsed = True
+                else:
+                    collapsed_parts.append(part)
+        if any_collapsed:
+            collapsed = ''.join(collapsed_parts).strip()
+            if collapsed != text:
+                variants.append(collapsed)
+        # Also try full whitespace strip as fallback
+        stripped = re.sub(r'\s+', '', text)
+        if stripped != text and len(stripped) > 3:
+            variants.append(stripped)
+
+        # 5. Pig Latin stripped (remove -way/-ay suffixes)
+        words = text.split()
+        pig_decoded = []
+        changed = False
+        for word in words:
+            lower = word.lower()
+            if lower.endswith('way') and len(word) > 4:
+                pig_decoded.append(word[:-3])
+                changed = True
+            elif lower.endswith('ay') and len(word) > 3:
+                # Move last consonant cluster back to front
+                core = word[:-2]
+                pig_decoded.append(core[-1] + core[:-1])
+                changed = True
+            else:
+                pig_decoded.append(word)
+        if changed:
+            variants.append(' '.join(pig_decoded))
+
+        return variants
 
     @staticmethod
     def _is_gibberish(text):

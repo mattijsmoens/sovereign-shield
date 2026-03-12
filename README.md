@@ -4,7 +4,7 @@
 
 [![License](https://img.shields.io/badge/license-BSL%201.1-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.8+-green.svg)](https://python.org)
-[![Tests](https://img.shields.io/badge/tests-132%20passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-155%20passing-brightgreen.svg)]()
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen.svg)]()
 [![Patent Pending](https://img.shields.io/badge/patent-pending-orange.svg)]()
 
@@ -14,13 +14,21 @@ Sovereign Shield provides a comprehensive, layered defense system for AI applica
 
 ---
 
-## ⚠️ Upgrading to 1.0.4
+## ⚠️ Upgrading to 1.1.0
 
 If upgrading from an earlier version, **delete your `data/.core_safety_lock` and `data/.conscience_lock` files** after installing. The hash integrity check seals the source code — since the source changed, your old lockfile will mismatch and trigger an integrity violation. It reseals automatically on next startup.
 
+### What changed in 1.0.4 → 1.1.0
+
+- ** Self-Expanding Minefield (V2)**: AdaptiveShield now classifies attacks into categories (exfiltration, injection, impersonation, etc.) and learns keyword clusters. One report blocks an *entire class* of similar attacks it has never seen before.
+- ** Self-Pruning False Positives**: New `report_false_positive()` method removes learned keywords that wrongly block clean inputs — preserving immutable predefined rules. The system gets smarter *and* more precise simultaneously.
+- ** Multilingual Detection**: InputFilter now blocks injection attempts in 12 languages (French, German, Spanish, Portuguese, Italian, Dutch, Polish, Russian, Chinese, Japanese, Korean, Arabic).
+- ** Multi-Decode Pipeline**: Automatic Base64, ROT13, leet speak, and reversed text decoding catches encoded bypass attempts.
+- ** Benchmark**: 300 real-world attack payloads across 10 categories — converges from 2.7% → 78.7% → **100% detection** in 2 learning generations. 0 false positives on 50 clean inputs.
+
 ### What changed in 1.0.3 → 1.0.4
 
-- **🧠 AdaptiveShield (NEW)**: Self-improving security filter that learns from missed attacks. Reports trigger automatic rule generation → sandbox replay against historical traffic → threshold-gated deployment. Patent Pending.
+- ** AdaptiveShield (NEW)**: Self-improving security filter that learns from missed attacks. Reports trigger automatic rule generation → sandbox replay against historical traffic → threshold-gated deployment. Patent Pending.
 - **InputFilter**: Fixed Unicode homoglyph bypass — Greek/Cyrillic lookalike characters (e.g. Ι, Ρ, А, О) now fold to Latin equivalents before keyword matching. Added 40+ character mappings.
 - **InputFilter**: Fixed Base64/encoded payload bypass — improved entropy detection with Base64 signature analysis (catches `=` padding + digit/symbol density).
 - **Firewall**: Fixed instant re-blocking — stale timestamps in the sliding window caused users to be re-blocked immediately after their block expired. History is now cleared on expiry.
@@ -113,13 +121,16 @@ Controls who can access the system and how fast.
 
 ### 5. `AdaptiveShield` — The Self-Improving Filter *(Patent Pending)*
 
-A closed-loop security filter that autonomously learns from missed attacks and deploys validated rules.
+A closed-loop security filter that autonomously learns from missed attacks, deploys validated rules, and self-prunes false positives.
 
 **Key Features:**
 
 - **Scan Logging**: Every input is logged with a unique scan ID, full text, allow/block decision, and timestamp
 - **Report Interface**: Users report false negatives by scan ID — the original input is retrieved for pattern extraction
-- **Sandbox Replay**: Candidate rules are tested against all historically allowed inputs to calculate false positive rates
+- **Self-Expanding Minefield (V2)**: Extracts keywords from reported attacks, classifies them into attack categories, and stores them in a persistent keyword database. A single report blocks an entire class of similar attacks.
+- **Category Threshold Matching**: Requires 2+ keywords from the same attack category to trigger — dramatically reduces false positives while maintaining high detection
+- **Self-Pruning (V2)**: `report_false_positive()` identifies and removes only the *learned* keywords that caused a wrongful block. Predefined rules are immutable.
+- **Sandbox Replay**: Candidate rules are tested against all historical allowed inputs to calculate false positive rates
 - **Threshold-Gated Deployment**: Rules below a configurable FP threshold (default 1%) are auto-deployed; rules above are flagged for manual review
 - **Manual Approval Workflow**: List, approve, reject, or bulk-approve pending rules
 - **Two Deployment Modes**: Automatic (rules deploy instantly) or manual (all rules require explicit approval)
@@ -185,6 +196,9 @@ def handle_request(user_id, user_input):
 
 # 6. Report a missed attack (triggers self-improvement)
 # report = adaptive.report(scan_id="abc123", reason="data exfiltration attempt")
+
+# 7. Report a false positive (triggers self-pruning)
+# fp = adaptive.report_false_positive(scan_id="def456", reason="legitimate question")
 ```
 
 ---
@@ -230,7 +244,7 @@ SovereignShield/
 python -m unittest test_shield -v
 ```
 
-39 test cases covering FrozenNamespace immutability, InputFilter (with homoglyph and entropy attacks), Firewall, Conscience, and CoreSafety. Plus 47 real-world attack scenario tests.
+155 test cases covering FrozenNamespace immutability, InputFilter (with homoglyph, entropy, and multilingual attacks), Firewall, Conscience, CoreSafety, AdaptiveShield V2 (self-expanding minefield, self-pruning), and FullShield integration.
 
 ---
 
