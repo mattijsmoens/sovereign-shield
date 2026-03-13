@@ -1,30 +1,48 @@
 # Sovereign Shield
 
-**A standalone AI security framework extracted from the KAIROS Autonomous Intelligence System.**
+**The security layer that sits between your AI and the real world.**
 
 [![License](https://img.shields.io/badge/license-BSL%201.1-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.8+-green.svg)](https://python.org)
-[![Tests](https://img.shields.io/badge/tests-155%20passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-181%20passing-brightgreen.svg)]()
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen.svg)]()
 [![Patent Pending](https://img.shields.io/badge/patent-pending-orange.svg)]()
 
-Sovereign Shield provides a comprehensive, layered defense system for AI applications, APIs, and autonomous agents. Every component is tamper-proof, hash-verified, and designed to be impossible to bypass at runtime.
+When an AI agent decides to browse a website, execute code, send an email, or answer a question — Sovereign Shield checks that action **before it happens**. If the action is dangerous, deceptive, or based on unverified facts, it gets blocked. If it's safe, it goes through. Every time, deterministically, in under a millisecond.
 
-> Everything happens **before** the LLM executes anything. Zero dependencies, zero latency, deterministic. Same input = same decision 100% of the time.
+Think of it as a bouncer for AI. The AI can think whatever it wants, but nothing leaves the building without passing 8 independent security checks — from prompt injection detection to factual hallucination blocking.
+
+**What it catches:**
+
+- Prompt injection attacks (50+ patterns, 12 languages)
+- Shell execution, file deletion, credential exfiltration
+- Deceptive behavior (manipulation, social engineering, IP theft)
+- Unverified factual claims (TruthGuard blocks confident answers that lack tool-backed verification)
+- DDoS and rate limit abuse
+- Self-improving — reports missed attacks, auto-generates and deploys new rules
+
+**Zero dependencies. Pure Python. Same input = same decision, 100% of the time.**
 
 ---
 
-## ⚠️ Upgrading to 1.1.0
+## Upgrading to 1.2.0
 
 If upgrading from an earlier version, **delete your `data/.core_safety_lock` and `data/.conscience_lock` files** after installing. The hash integrity check seals the source code — since the source changed, your old lockfile will mismatch and trigger an integrity violation. It reseals automatically on next startup.
 
+### What changed in 1.1.0 → 1.2.0
+
+- **TruthGuard (NEW)**: Factual hallucination detector. Tracks which verification tools the AI actually used, then scans output for confident claims (temporal, numerical, citation, certainty markers). Blocks unverified claims, allows hedged responses, caches verified facts in SQLite with TTL. Toggleable at runtime.
+- **ActionParser (ADDED)**: Deterministic LLM output parser, added from IntentShield. 3-layer parsing (line-by-line, regex fallback, nuclear scanner) with SUBCONSCIOUS/ACTION format enforcement and correction feedback.
+- **LoRAExporter (NEW)**: Compiles TruthGuard data into JSONL training pairs for external LoRA fine-tuning. Goal: teach the model to prefer truthful responses so it stops needing TruthGuard to catch it. 4 pair types: negative corrections, positive verified, positive hedged, positive cited.
+- **Consolidation**: Removed SovereignShieldFull. All 8 components now live in one SovereignShield package. 181 tests passing.
+
 ### What changed in 1.0.4 → 1.1.0
 
-- ** Self-Expanding Minefield (V2)**: AdaptiveShield now classifies attacks into categories (exfiltration, injection, impersonation, etc.) and learns keyword clusters. One report blocks an *entire class* of similar attacks it has never seen before.
-- ** Self-Pruning False Positives**: New `report_false_positive()` method removes learned keywords that wrongly block clean inputs — preserving immutable predefined rules. The system gets smarter *and* more precise simultaneously.
-- ** Multilingual Detection**: InputFilter now blocks injection attempts in 12 languages (French, German, Spanish, Portuguese, Italian, Dutch, Polish, Russian, Chinese, Japanese, Korean, Arabic).
-- ** Multi-Decode Pipeline**: Automatic Base64, ROT13, leet speak, and reversed text decoding catches encoded bypass attempts.
-- ** Benchmark**: 300 real-world attack payloads across 10 categories — converges from 2.7% → 78.7% → **100% detection** in 2 learning generations. 0 false positives on 50 clean inputs.
+- **Self-Expanding Minefield (V2)**: AdaptiveShield now classifies attacks into categories (exfiltration, injection, impersonation, etc.) and learns keyword clusters. One report blocks an *entire class* of similar attacks it has never seen before.
+- **Self-Pruning False Positives**: New `report_false_positive()` method removes learned keywords that wrongly block clean inputs — preserving immutable predefined rules. The system gets smarter *and* more precise simultaneously.
+- **Multilingual Detection**: InputFilter now blocks injection attempts in 12 languages (French, German, Spanish, Portuguese, Italian, Dutch, Polish, Russian, Chinese, Japanese, Korean, Arabic).
+- **Multi-Decode Pipeline**: Automatic Base64, ROT13, leet speak, and reversed text decoding catches encoded bypass attempts.
+- **Benchmark**: 300 real-world attack payloads across 10 categories — converges from 2.7% → 78.7% → **100% detection** in 2 learning generations. 0 false positives on 50 clean inputs.
 
 ### What changed in 1.0.3 → 1.0.4
 
@@ -43,26 +61,28 @@ If upgrading from an earlier version, **delete your `data/.core_safety_lock` and
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                         SOVEREIGN SHIELD                             │
-├──────────┬──────────────┬───────────┬──────────────┬────────────────┤
-│ Firewall │ InputFilter  │Conscience │  CoreSafety  │ AdaptiveShield │
-│(Layer 1) │  (Layer 2)   │ (Layer 3) │  (Layer 4)   │   (Layer 5)    │
-│          │              │           │              │                │
-│• Identity│ • Unicode    │• Deception│ • Hash Seal  │• Self-Improving│
-│  White-  │   Normalize  │  Detection│ • Integrity  │  Filter        │
-│  list    │ • Injection  │• Harm     │   Verify     │• Scan Logging  │
-│• Rate    │   Blocking   │  Patterns │ • Action     │• Report        │
-│  Limiting│ • Gibberish  │• IP Leak  │   Auditing   │  Interface     │
-│• DDoS    │   Detection  │  Detection│ • Killswitch │• Sandbox       │
-│  Protect │ • LLM Token  │• Evasion  │ • Write/Read │  Replay        │
-│• Persisted│  Blocking   │  Detection│   Whitelists │• Threshold     │
-│  Ledger  │ • Keyword    │• Self-    │ • Malware    │  Gated Deploy  │
-│          │   Blocking   │  Preserve │   Syntax     │• Manual        │
-│          │              │           │ • Budget     │  Approval      │
-│          │              │           │ • Rate Limit │• SQLite        │
-│          │              │           │              │  Persistence   │
-└──────────┴──────────────┴───────────┴──────────────┴────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                              SOVEREIGN SHIELD                                   │
+├──────────┬──────────────┬───────────┬──────────────┬────────────────┬───────────┤
+│ Firewall │ InputFilter  │Conscience │  CoreSafety  │ AdaptiveShield │TruthGuard │
+│(Layer 1) │  (Layer 2)   │ (Layer 3) │  (Layer 4)   │   (Layer 5)    │ (Layer 6) │
+│          │              │           │              │                │           │
+│• Identity│ • Unicode    │• Deception│ • Hash Seal  │• Self-Improving│• Factual  │
+│  White-  │   Normalize  │  Detection│ • Integrity  │  Filter        │  Claim    │
+│  list    │ • Injection  │• Harm     │   Verify     │• Scan Logging  │  Detection│
+│• Rate    │   Blocking   │  Patterns │ • Action     │• Report        │• Tool Use │
+│  Limiting│ • Gibberish  │• IP Leak  │   Auditing   │  Interface     │  Tracking │
+│• DDoS    │   Detection  │  Detection│ • Killswitch │• Sandbox       │• Verified │
+│  Protect │ • LLM Token  │• Evasion  │ • Write/Read │  Replay        │  Fact     │
+│• Persisted│  Blocking   │  Detection│   Whitelists │• Threshold     │  Cache    │
+│  Ledger  │ • Keyword    │• Self-    │ • Malware    │  Gated Deploy  │• Hedge    │
+│          │   Blocking   │  Preserve │   Syntax     │• Manual        │  Detection│
+│          │              │           │ • Budget     │  Approval      │• LoRA     │
+│          │              │           │ • Rate Limit │• SQLite        │  Export   │
+│          │              │           │              │  Persistence   │           │
+└──────────┴──────────────┴───────────┴──────────────┴────────────────┴───────────┘
+
+Utilities: ActionParser (LLM output parsing) │ LoRAExporter (training data compiler)
 ```
 
 ---
@@ -71,78 +91,103 @@ If upgrading from an earlier version, **delete your `data/.core_safety_lock` and
 
 ### 1. `CoreSafety` — The Immutable Constitution
 
-The foundation. Uses a `FrozenNamespace` metaclass that makes all security laws **physically immutable in Python's memory** — they cannot be overwritten, even by the application itself.
+Every action the AI wants to take passes through CoreSafety first. It enforces hard rules that cannot be changed at runtime — not by the user, not by the application, and not by the AI itself. The rules live in a `FrozenNamespace` metaclass, which makes them physically immutable in Python's memory. On first boot, CoreSafety hashes its own source code with SHA-256 and locks that hash to disk. If anyone edits the file, the hash won't match and the process kills itself immediately.
 
-**Key Features:**
+This is the last line of defense. Even if everything else fails, CoreSafety will block shell execution, file deletion, credential exfiltration, and code injection — every time, deterministically.
 
-- **SHA-256 Hash Seal**: On first boot, hashes its own source file and writes it to a lockfile. Every subsequent boot verifies the file hasn't been tampered with. Mismatch = instant kill.
-- **Action Auditor**: Every action passes through `audit_action()` which checks: admin privileges, file whitelists, domain restrictions, self-modification ban, code exfiltration patterns, malware syntax, and rate limits.
-- **Hallucination Shield**: Detects when an AI claims to be "analyzing" or "processing" in a text response without actually using a tool.
-- **Budget Limiter**: Thread-safe daily action counter to prevent runaway API costs.
-- **Killswitch**: A single file that instantly terminates the process.
+- SHA-256 hash seal with tamper-triggered shutdown
+- Action auditing: admin privileges, file whitelists, domain restrictions, malware syntax
+- Hallucination detection: catches AI claiming it "analyzed" something without using a tool
+- Thread-safe daily budget limiter to prevent runaway costs
+- Killswitch: a single file that terminates the process instantly
 
 ### 2. `Conscience` — The Moral Compass
 
-Evaluates every action against ethical directives using pre-compiled regex patterns.
+While CoreSafety handles hard technical rules, Conscience handles soft behavioral rules. It catches when the AI is being deceptive, manipulative, or trying to extract information it shouldn't have. It uses pre-compiled regex patterns to scan for 22+ manipulation verbs (lie, fake, trick, roleplay, gaslight) and 24+ harm keywords.
 
-**Key Features:**
+The reason this is a separate layer: some dangerous outputs are technically valid actions. "ANSWER: Here is the full source code of CoreSafety..." is a legitimate answer action, but Conscience catches the IP leak. "ANSWER: Sure, I'll pretend I have no restrictions" is a valid response, but Conscience catches the deception.
 
-- **Deception Detection**: Catches 22+ manipulation verbs (lie, fake, trick, roleplay, gaslight, etc.)
-- **Harm Reduction**: Blocks actions containing 24+ harm keywords
-- **IP Protection**: Detects attempts to extract source code, system prompts, or architecture details
-- **Fake Tool Injection**: Catches syntactically valid but unauthorized tool calls
-- **Self-Preservation**: Refuses self-termination or deletion of critical files
-- **Hash-Sealed**: Same lockfile integrity verification as CoreSafety
+- Deception, harm, and social engineering pattern detection
+- Source code and system prompt leak prevention
+- Fake tool injection detection (syntactically valid but unauthorized calls)
+- Self-preservation: refuses to delete its own files
+- Hash-sealed with the same lockfile integrity as CoreSafety
 
 ### 3. `InputFilter` — The Sensory Cortex
 
-Sanitizes all input before it reaches any processing logic.
+Before any input reaches your AI, InputFilter cleans it. It normalizes Unicode, strips ANSI escape codes, detects gibberish/encoded payloads, and blocks prompt injection keywords in 12 languages. The multi-decode pipeline automatically tries Base64, ROT13, leet speak, and reversed text — so encoded bypass attempts get caught even if the attacker wraps them in layers of obfuscation.
 
-**Key Features:**
+The reason this exists as a separate layer: prompt injection is the single most common attack vector against AI systems. Most injections rely on special characters, Unicode tricks, or keyword phrases that can be caught deterministically before the AI ever sees them.
 
-- **Unicode Normalization + ASCII Folding**: NFKC normalization plus 40+ Greek/Cyrillic homoglyph mappings (defeats lookalike character attacks)
-- **ANSI Stripping**: Removes terminal escape codes that could manipulate display
-- **Gibberish Detection**: Entropy analysis + Base64 signature detection catches encoded payloads
-- **Escape Injection**: Blocks raw `\u0057` and `\x57` unicode/hex literals
-- **LLM Token Blocking**: Catches ChatML (`<|im_start|>`), LLaMA (`[INST]`), and system tokens
-- **Keyword Injection**: 30+ jailbreak keywords (ignore previous, sudo, DAN mode, etc.)
+- Unicode normalization + 40+ Greek/Cyrillic homoglyph mappings
+- ANSI escape code stripping
+- Entropy analysis + Base64 signature detection for encoded payloads
+- LLM token blocking (ChatML, LLaMA, system tokens)
+- 30+ jailbreak keywords across 12 languages
 
 ### 4. `Firewall` — The Identity Gateway
 
-Controls who can access the system and how fast.
+Controls access at the user level. Only whitelisted user IDs can interact, and they're rate-limited with a sliding window. Violators get auto-blocked for a configurable duration, and the block ledger persists to disk so it survives restarts. This prevents DDoS, brute-force, and abuse patterns.
 
-**Key Features:**
-
-- **User Whitelist**: Only specified user IDs can interact
-- **Sliding Window Rate Limiter**: Configurable messages-per-window
-- **Auto-Blocking**: Violators are blocked for a configurable duration
-- **Disk Persistence**: Block ledger survives process restarts
-- **Thread-Safe**: All operations use locks
+- User whitelist with configurable allowed IDs
+- Sliding window rate limiter (messages per window)
+- Auto-blocking with configurable duration
+- Disk-persisted block ledger
+- Thread-safe operations
 
 ### 5. `AdaptiveShield` — The Self-Improving Filter *(Patent Pending)*
 
-A closed-loop security filter that autonomously learns from missed attacks, deploys validated rules, and self-prunes false positives.
+Most security systems are static — they only catch what they were built to catch. AdaptiveShield closes that gap. When an attack slips through, you report it. The system extracts keywords from the missed attack, classifies them into attack categories (exfiltration, injection, impersonation, etc.), and stores them. One report teaches it to block an entire class of similar attacks it has never seen before.
 
-**Key Features:**
+Before deploying a new rule, AdaptiveShield replays it against all historical allowed inputs to calculate its false positive rate. If it's below 1%, the rule goes live immediately. If it's above, it gets flagged for manual review. And if a clean input gets wrongly blocked, `report_false_positive()` removes only the learned keywords that caused it — predefined rules are never touched.
 
-- **Scan Logging**: Every input is logged with a unique scan ID, full text, allow/block decision, and timestamp
-- **Report Interface**: Users report false negatives by scan ID — the original input is retrieved for pattern extraction
-- **Self-Expanding Minefield (V2)**: Extracts keywords from reported attacks, classifies them into attack categories, and stores them in a persistent keyword database. A single report blocks an entire class of similar attacks.
-- **Category Threshold Matching**: Requires 2+ keywords from the same attack category to trigger — dramatically reduces false positives while maintaining high detection
-- **Self-Pruning (V2)**: `report_false_positive()` identifies and removes only the *learned* keywords that caused a wrongful block. Predefined rules are immutable.
-- **Sandbox Replay**: Candidate rules are tested against all historical allowed inputs to calculate false positive rates
-- **Threshold-Gated Deployment**: Rules below a configurable FP threshold (default 1%) are auto-deployed; rules above are flagged for manual review
-- **Manual Approval Workflow**: List, approve, reject, or bulk-approve pending rules
-- **Two Deployment Modes**: Automatic (rules deploy instantly) or manual (all rules require explicit approval)
-- **Fully Offline**: SQLite database, zero cloud dependencies, deterministic behavior
-- **Thread-Safe**: All database operations protected by mutual exclusion locks
+- Report missed attacks by scan ID, rules auto-generated from keywords
+- Category-based classification: one report blocks entire attack classes
+- Sandbox replay against historical traffic before deployment
+- Self-pruning: removes overly aggressive learned rules while keeping core rules immutable
+- Two modes: automatic deployment or manual approval workflow
+- SQLite persistence, fully offline, thread-safe
+
+### 6. `TruthGuard` — The Factual Hallucination Detector *(Patent Pending)*
+
+AI models confidently state things that aren't true. TruthGuard catches this by tracking which verification tools (SEARCH, BROWSE, READ_FILE) the AI actually used during a session, and then scanning the output for confidence markers — temporal claims ("as of 2024"), numerical claims ("costs $499"), citations ("according to MIT"), and certainty language ("definitely", "always", "100%"). If the AI makes a confident factual claim without having used a verification tool first, TruthGuard blocks it.
+
+If the AI hedges appropriately ("I believe", "as far as I know"), TruthGuard lets it through. Verified facts are cached in SQLite with a configurable TTL, so the same fact doesn't need to be re-verified every time. Can be toggled on or off at runtime.
+
+- 4 regex categories: temporal, numerical, citation, certainty
+- Session-aware tool tracking
+- Hedge detection: allows appropriately uncertain responses
+- Verified fact cache with TTL
+- Full audit log of every check
+- Runtime toggle: `guard.enabled = True/False`
+
+### 7. `ActionParser` — The LLM Output Parser
+
+LLMs produce messy, unpredictable text. ActionParser turns that into structured data. It forces a SUBCONSCIOUS/ACTION format where the AI has to show its reasoning before declaring what it wants to do. Three parsing layers (line-by-line, regex fallback, nuclear scanner) handle everything from clean output to completely malformed text. If parsing fails, it returns a correction prompt telling the AI exactly how to fix its output.
+
+- 3-layer parsing with progressive fallbacks
+- SUBCONSCIOUS/ACTION format enforcement
+- Markdown artifact cleaning (strips bold, backticks, formatting)
+- Tool whitelist validation
+- Correction feedback for failed parses
+
+### 8. `LoRAExporter` — The Training Data Compiler
+
+TruthGuard catches hallucinations at runtime, but the real goal is to make the model stop hallucinating in the first place. LoRAExporter compiles everything TruthGuard has learned — blocked claims, verified facts, hedged responses, cited answers — into JSONL training pairs. You then use those datasets with an external fine-tuning tool (OpenAI API, HuggingFace, Unsloth) to train the model to prefer truthful, hedged responses over confident guesses. Over time, the model internalizes the behavior and stops needing TruthGuard to catch it.
+
+- 4 training pair types: negative corrections, positive verified, positive hedged, positive cited
+- Standard messages JSONL format (OpenAI/HuggingFace compatible)
+- Stats dashboard showing data readiness
+- Auto-hedging: converts blocked claims into hedged versions for training
+
+> The LoRA exporter produces datasets for use with external training tools. The actual model training happens outside of SovereignShield — this module handles the data pipeline only.
 
 ---
 
 ## Quick Start
 
 ```python
-from sovereign_shield import CoreSafety, Conscience, InputFilter, Firewall, AdaptiveShield
+from sovereign_shield import CoreSafety, Conscience, InputFilter, Firewall, AdaptiveShield, TruthGuard
 
 # 1. Initialize the hash seals (do this ONCE at startup)
 CoreSafety.initialize_seal(data_dir="./security_data")
@@ -223,17 +268,22 @@ def handle_request(user_id, user_input):
 
 ```
 SovereignShield/
-├── README.md               ← You are here
-├── LICENSE                  ← BSL 1.1
-├── pyproject.toml           ← Package config
-├── test_shield.py           ← 39 test cases
+├── README.md                ← You are here
+├── LICENSE                   ← BSL 1.1
+├── pyproject.toml            ← Package config
+├── test_shield.py            ← Core security tests (38)
+├── test_truth_guard.py       ← TruthGuard tests (27)
+├── test_lora_export.py       ← LoRA + toggle tests (14)
 └── sovereign_shield/
-    ├── __init__.py          ← Public API (imports all components)
-    ├── core.py              ← CoreSafety + FrozenNamespace
-    ├── conscience.py        ← Ethical evaluation engine
-    ├── input_filter.py      ← Input sanitization
-    ├── firewall.py          ← Identity + rate limiting
-    └── adaptive.py          ← AdaptiveShield (self-improving filter)
+    ├── __init__.py           ← Public API (exports all 8 components)
+    ├── core.py               ← CoreSafety + FrozenNamespace
+    ├── conscience.py         ← Ethical evaluation engine
+    ├── input_filter.py       ← Input sanitization
+    ├── firewall.py           ← Identity + rate limiting
+    ├── adaptive.py           ← AdaptiveShield (self-improving filter)
+    ├── truth_guard.py        ← TruthGuard (factual hallucination detection)
+    ├── action_parser.py      ← ActionParser (LLM output parsing)
+    └── lora_export.py        ← LoRAExporter (training data compiler)
 ```
 
 ---
@@ -241,10 +291,10 @@ SovereignShield/
 ## Tests
 
 ```bash
-python -m unittest test_shield -v
+python -m pytest test_shield.py test_truth_guard.py test_lora_export.py -v
 ```
 
-155 test cases covering FrozenNamespace immutability, InputFilter (with homoglyph, entropy, and multilingual attacks), Firewall, Conscience, CoreSafety, AdaptiveShield V2 (self-expanding minefield, self-pruning), and FullShield integration.
+181 test cases covering FrozenNamespace immutability, InputFilter (with homoglyph, entropy, and multilingual attacks), Firewall, Conscience, CoreSafety, AdaptiveShield V2 (self-expanding minefield, self-pruning), TruthGuard (confidence markers, hedge detection, fact caching, session isolation), and LoRAExporter (JSONL output, training pair format, runtime toggle).
 
 ---
 

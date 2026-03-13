@@ -9,3 +9,5 @@ build/
 daily_usage.txt
 .core_safety_lock
 .conscience_lock
+_test_lora_data/
+_test_truth_data/

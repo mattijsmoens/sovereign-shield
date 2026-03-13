@@ -1,0 +1,10 @@
+include LICENSE
+include README.md
+recursive-include sovereign_shield *.py
+exclude test_*.py
+prune _test_lora_data
+prune _test_truth_data
+prune __pycache__
+prune .pytest_cache
+prune .git
+prune sovereign_shield.egg-info
