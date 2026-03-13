@@ -10,7 +10,7 @@
 
 When an AI agent decides to browse a website, execute code, send an email, or answer a question — Sovereign Shield checks that action **before it happens**. If the action is dangerous, deceptive, or based on unverified facts, it gets blocked. If it's safe, it goes through. Every time, deterministically, in under a millisecond.
 
-Think of it as a bouncer for AI. The AI can think whatever it wants, but nothing leaves the building without passing 8 independent security checks — from prompt injection detection to factual hallucination blocking.
+Think of it as a bouncer for AI. The AI can think whatever it wants, but nothing leaves the building without passing 11 independent security checks — from prompt injection detection to factual hallucination blocking to human-in-the-loop approval.
 
 **What it catches:**
 
@@ -25,9 +25,15 @@ Think of it as a bouncer for AI. The AI can think whatever it wants, but nothing
 
 ---
 
-## Upgrading to 1.2.0
+## Upgrading to 1.2.1
 
 If upgrading from an earlier version, **delete your `data/.core_safety_lock` and `data/.conscience_lock` files** after installing. The hash integrity check seals the source code — since the source changed, your old lockfile will mismatch and trigger an integrity violation. It reseals automatically on next startup.
+
+### What changed in 1.2.0 → 1.2.1
+
+- **HITLApproval (NEW)**: Human-in-the-loop approval workflow for high-impact actions. Instead of binary allow/block, actions like DEPLOY, DELETE_FILE, SHUTDOWN can require human approval before execution. Cryptographic parameter binding prevents "approve one action, execute another" substitution attacks. AISVS C9.2, C14.2.
+- **SIEMLogger (NEW)**: Structured security event logger for SIEM integration. Outputs CEF (Common Event Format) or structured JSON, compatible with Splunk, Elastic, QRadar, Sentinel. AI-specific fields: confidence scores, markers detected, model version, session ID. AISVS C13.2.2.
+- **MultiModalFilter (NEW)**: Multi-modal input validation for images, audio, and files. Magic byte verification, MIME type spoofing detection, double extension checks, embedded executable scanning, file size enforcement, EXIF metadata flagging. Routes all extracted text (OCR, speech-to-text) through InputFilter as untrusted. AISVS C2.7.
 
 ### What changed in 1.1.0 → 1.2.0
 
@@ -61,28 +67,30 @@ If upgrading from an earlier version, **delete your `data/.core_safety_lock` and
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              SOVEREIGN SHIELD                                   │
-├──────────┬──────────────┬───────────┬──────────────┬────────────────┬───────────┤
-│ Firewall │ InputFilter  │Conscience │  CoreSafety  │ AdaptiveShield │TruthGuard │
-│(Layer 1) │  (Layer 2)   │ (Layer 3) │  (Layer 4)   │   (Layer 5)    │ (Layer 6) │
-│          │              │           │              │                │           │
-│• Identity│ • Unicode    │• Deception│ • Hash Seal  │• Self-Improving│• Factual  │
-│  White-  │   Normalize  │  Detection│ • Integrity  │  Filter        │  Claim    │
-│  list    │ • Injection  │• Harm     │   Verify     │• Scan Logging  │  Detection│
-│• Rate    │   Blocking   │  Patterns │ • Action     │• Report        │• Tool Use │
-│  Limiting│ • Gibberish  │• IP Leak  │   Auditing   │  Interface     │  Tracking │
-│• DDoS    │   Detection  │  Detection│ • Killswitch │• Sandbox       │• Verified │
-│  Protect │ • LLM Token  │• Evasion  │ • Write/Read │  Replay        │  Fact     │
-│• Persisted│  Blocking   │  Detection│   Whitelists │• Threshold     │  Cache    │
-│  Ledger  │ • Keyword    │• Self-    │ • Malware    │  Gated Deploy  │• Hedge    │
-│          │   Blocking   │  Preserve │   Syntax     │• Manual        │  Detection│
-│          │              │           │ • Budget     │  Approval      │• LoRA     │
-│          │              │           │ • Rate Limit │• SQLite        │  Export   │
-│          │              │           │              │  Persistence   │           │
-└──────────┴──────────────┴───────────┴──────────────┴────────────────┴───────────┘
+┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                      SOVEREIGN SHIELD                                           │
+├──────────┬──────────────┬───────────┬──────────────┬────────────────┬──────────────┬────────────┤
+│ Firewall │ InputFilter  │Conscience │  CoreSafety  │ AdaptiveShield │  TruthGuard  │MultiModal  │
+│(Layer 1) │  (Layer 2)   │ (Layer 3) │  (Layer 4)   │   (Layer 5)    │  (Layer 6)   │ (Layer 7)  │
+│          │              │           │              │                │              │            │
+│• Identity│ • Unicode    │• Deception│ • Hash Seal  │• Self-Improving│• Factual     │• MIME Type │
+│  White-  │   Normalize  │  Detection│ • Integrity  │  Filter        │  Claim       │  Validation│
+│  list    │ • Injection  │• Harm     │   Verify     │• Scan Logging  │  Detection   │• Magic Byte│
+│• Rate    │   Blocking   │  Patterns │ • Action     │• Report        │• Tool Use    │  Checking  │
+│  Limiting│ • Gibberish  │• IP Leak  │   Auditing   │  Interface     │  Tracking    │• Filename  │
+│• DDoS    │   Detection  │  Detection│ • Killswitch │• Sandbox       │• Verified    │  Sanitize  │
+│  Protect │ • LLM Token  │• Evasion  │ • Write/Read │  Replay        │  Fact Cache  │• Embedded  │
+│• Persisted│  Blocking   │  Detection│   Whitelists │• Threshold     │• Hedge       │  Exe Check │
+│  Ledger  │ • Keyword    │• Self-    │ • Malware    │  Gated Deploy  │  Detection   │• EXIF Flag │
+│          │   Blocking   │  Preserve │   Syntax     │• Manual        │• LoRA Export │• Extracted │
+│          │              │           │ • Budget     │  Approval      │              │  Text Route│
+│          │              │           │ • Rate Limit │• SQLite        │              │            │
+│          │              │           │              │  Persistence   │              │            │
+└──────────┴──────────────┴───────────┴──────────────┴────────────────┴──────────────┴────────────┘
 
-Utilities: ActionParser (LLM output parsing) │ LoRAExporter (training data compiler)
+Cross-Cutting:  HITLApproval (human-in-the-loop approval for high-impact actions)
+                SIEMLogger (structured CEF/JSON security event logging for SIEM platforms)
+                ActionParser (LLM output parsing) │ LoRAExporter (training data compiler)
 ```
 
 ---
@@ -182,6 +190,39 @@ TruthGuard catches hallucinations at runtime, but the real goal is to make the m
 
 > The LoRA exporter produces datasets for use with external training tools. The actual model training happens outside of SovereignShield — this module handles the data pipeline only.
 
+### 9. `HITLApproval` — Human-in-the-Loop Approval *(AISVS C9.2, C14.2)*
+
+Some actions are too important to trust to an automated system alone. HITLApproval intercepts high-impact actions (DEPLOY, DELETE_FILE, SHUTDOWN, TRANSFER_FUNDS, etc.) and pauses execution until a human reviewer approves or denies them. The approval is cryptographically bound to the exact action parameters using SHA-256 — so approving one set of parameters cannot be replayed to execute different parameters. Approvals expire after a configurable TTL (default: 5 minutes).
+
+- Configurable high-impact action list (13 defaults)
+- Cryptographic parameter binding (prevents substitution attacks)
+- Approval TTL with automatic expiry
+- Persistent JSON ledger survives restarts
+- Approve/deny/pending admin interface
+- Thread-safe operations
+
+### 10. `SIEMLogger` — SIEM Integration *(AISVS C13.2.2)*
+
+Enterprise security teams live in their SIEM dashboards. SIEMLogger formats every security event from every SovereignShield component into either CEF (Common Event Format) or structured JSON — both are standard formats that Splunk, Elastic, QRadar, and Azure Sentinel can ingest natively. Each event includes AI-specific context fields that don't exist in traditional security logs: model version, confidence scores, markers detected, session ID.
+
+- CEF and JSON output formats
+- Auto-mapped severity levels (17 event types)
+- AI-specific context: confidence scores, markers, model version
+- Thread-safe file output with size-based rotation
+- Convenience methods: `log_block()`, `log_allow()`, `log_injection()`, `log_hallucination()`
+
+### 11. `MultiModalFilter` — Multi-Modal Input Validation *(AISVS C2.7)*
+
+AI applications increasingly process images, audio, and files — not just text. MultiModalFilter validates these non-text inputs before they enter the pipeline. It checks file types using magic bytes (not just file extensions), detects type spoofing (declared JPEG but actually an executable), blocks dangerous file types unconditionally, catches double extensions (photo.jpg.exe), and scans for embedded executable signatures. Any text extracted from media (OCR, speech-to-text) is routed through InputFilter as untrusted input.
+
+- Magic byte verification for 15+ file types
+- MIME type allow-list with dangerous type blocklist
+- Type spoofing detection (declared vs actual mismatch)
+- Filename sanitization (null bytes, path traversal, double extensions)
+- Embedded executable scanning (PE, ELF, script signatures)
+- EXIF metadata detection and strip flagging
+- Extracted text routing through InputFilter
+
 ---
 
 ## Quick Start
@@ -254,7 +295,7 @@ def handle_request(user_id, user_input):
 |---|---|
 | **Tamper-Proof** | SHA-256 hash seal with lockfile. Process kills itself on mismatch. |
 | **Immutable Laws** | `FrozenNamespace` metaclass physically prevents attribute modification. |
-| **Defense in Depth** | 4 independent layers — compromising one doesn't bypass others. |
+| **Defense in Depth** | 7 independent layers + 4 cross-cutting modules — compromising one doesn't bypass others. |
 | **Fail-Closed** | On verification failure, the system shuts down rather than running unprotected. |
 | **Thread-Safe** | All shared state protected by locks. |
 | **Persistent** | Block ledgers and usage counters survive restarts. |
@@ -275,7 +316,7 @@ SovereignShield/
 ├── test_truth_guard.py       ← TruthGuard tests (27)
 ├── test_lora_export.py       ← LoRA + toggle tests (14)
 └── sovereign_shield/
-    ├── __init__.py           ← Public API (exports all 8 components)
+    ├── __init__.py           ← Public API (exports all 11 components)
     ├── core.py               ← CoreSafety + FrozenNamespace
     ├── conscience.py         ← Ethical evaluation engine
     ├── input_filter.py       ← Input sanitization
@@ -283,7 +324,10 @@ SovereignShield/
     ├── adaptive.py           ← AdaptiveShield (self-improving filter)
     ├── truth_guard.py        ← TruthGuard (factual hallucination detection)
     ├── action_parser.py      ← ActionParser (LLM output parsing)
-    └── lora_export.py        ← LoRAExporter (training data compiler)
+    ├── lora_export.py        ← LoRAExporter (training data compiler)
+    ├── hitl.py               ← HITLApproval (human-in-the-loop approval)
+    ├── siem_logger.py        ← SIEMLogger (SIEM event logging)
+    └── multimodal_filter.py  ← MultiModalFilter (multi-modal validation)
 ```
 
 ---

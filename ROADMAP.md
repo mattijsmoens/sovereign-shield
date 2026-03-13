@@ -6,6 +6,18 @@ What's built, what's next, and where we're heading.
 
 ## Shipped
 
+### v1.2.1 (March 2026 — AISVS Quick Wins + OWASP Engagement)
+
+- **HITLApproval**: Human-in-the-loop approval workflow for high-impact actions (DEPLOY, DELETE_FILE, SHUTDOWN, etc.). Uses SHA-256 parameter binding to prevent "approve one action, execute another" substitution attacks. Persistent JSON ledger, configurable TTL, thread-safe. AISVS C9.2, C14.2.
+
+- **SIEMLogger**: Structured security event logger outputting CEF (Common Event Format) or JSON for ingestion by Splunk, Elastic, QRadar, Azure Sentinel. 17 pre-mapped event types with AI-specific context fields (confidence scores, markers detected, model version, session ID). Thread-safe with size-based log rotation. AISVS C13.2.2, C13.1.1, C13.2.3.
+
+- **MultiModalFilter**: Validates non-text inputs (images, audio, files) using magic byte verification, MIME type allow-listing, type spoofing detection, filename sanitization (null bytes, path traversal, double extensions), embedded executable scanning (PE, ELF, script signatures), and EXIF metadata flagging. Routes all extracted text (OCR, speech-to-text) through InputFilter as untrusted. AISVS C2.7.1, C2.7.3, C2.7.5.
+
+- **IntentShield v1.1.0**: Added HITL and SIEM modules to IntentShield with full integration into the Shield wrapper's audit flow. High-impact actions now require human approval before execution, and all audit decisions are logged.
+
+- **OWASP Engagement**: Submitted detailed feedback to OWASP AI Security Verification Standard (AISVS) with 7 proposed control additions. SovereignShield referenced as working implementation. OWASP maintainer (Jim Manico) invited PR submissions.
+
 ### v1.2.0 (March 2026 — TruthGuard + Consolidation)
 
 - **TruthGuard**: AI models have a tendency to state things confidently even when they have no basis for the claim. TruthGuard addresses this by tracking which verification tools (SEARCH, BROWSE, READ_FILE) the AI actually used during a session, and then scanning the output for factual confidence markers — temporal claims ("as of 2024"), numerical figures ("costs $499"), citations ("according to MIT"), and certainty language ("definitely", "always", "100%"). If the output contains these markers but the AI never called a verification tool, the response gets blocked. If the AI hedges appropriately ("I believe", "as far as I know"), TruthGuard lets it through. Previously verified facts are cached in SQLite with a configurable TTL so they don't need re-verification every time. The entire module can be toggled on or off at runtime with `guard.enabled = True/False`, and every check is logged to a full audit trail.
