@@ -15,6 +15,7 @@ import hashlib
 import os
 import re
 import sys
+import time
 from .core import FrozenNamespace
 
 logger = logging.getLogger(__name__)
@@ -101,6 +102,7 @@ class Conscience(metaclass=FrozenNamespace):
     }
 
     _SELF_HASH = None
+    _STATE = {"last_integrity_check": 0, "integrity_cache_ttl": 60}
 
     # ---------------------------------------------------------------
     # HASH INTEGRITY SEAL
@@ -122,16 +124,17 @@ class Conscience(metaclass=FrozenNamespace):
             if not os.path.exists(lockfile_path):
                 with open(__file__, 'rb') as f:
                     cls._SELF_HASH = hashlib.sha256(f.read()).hexdigest()
-                with open(lockfile_path, "w") as lf:
+                with open(lockfile_path, "w", encoding="utf-8") as lf:
                     lf.write(cls._SELF_HASH)
                 logger.info(f"[Conscience] Sealed. Lock: {cls._SELF_HASH[:16]}...")
             else:
-                with open(lockfile_path, "r") as lf:
+                with open(lockfile_path, "r", encoding="utf-8") as lf:
                     cls._SELF_HASH = lf.read().strip()
                 logger.info("[Conscience] Restored from lockfile.")
             cls.verify_integrity()
         except Exception as e:
-            logger.critical(f"[Conscience] Initialization failed: {e}")
+            logger.critical(f"[Conscience] Initialization failed: {e}. Terminating (fail-closed).")
+            os._exit(1)
 
     @classmethod
     def verify_integrity(cls):
@@ -139,20 +142,26 @@ class Conscience(metaclass=FrozenNamespace):
         Verify this source file has not been modified since sealing.
         
         Terminates the process on hash mismatch (fail-closed security).
+        Uses a 60-second cache to avoid disk I/O on every call.
         
         Returns:
             True if integrity check passes.
         """
         if cls._SELF_HASH:
+            # Skip if recently verified
+            now = time.time()
+            if (now - cls._STATE.get("last_integrity_check", 0)) < cls._STATE.get("integrity_cache_ttl", 60):
+                return True
             try:
                 with open(__file__, 'rb') as f:
                     current_hash = hashlib.sha256(f.read()).hexdigest()
                 if current_hash != cls._SELF_HASH:
                     logger.critical("INTEGRITY VIOLATION: Conscience module has been tampered with. Terminating.")
-                    sys.exit(1)
+                    os._exit(1)
+                cls._STATE["last_integrity_check"] = now
             except Exception as e:
                 logger.critical(f"INTEGRITY CHECK FAILED: Cannot read source file. Assuming compromise. Terminating.")
-                sys.exit(1)
+                os._exit(1)
         return True
 
     # ---------------------------------------------------------------
@@ -240,7 +249,8 @@ class Conscience(metaclass=FrozenNamespace):
                 return False, "Internal architecture is protected."
             # Check additional custom IP keywords if provided
             if additional_ip_words:
-                additional_pattern = re.compile(r'\b(' + '|'.join(additional_ip_words) + r')\b')
+                escaped = [re.escape(w) for w in additional_ip_words]
+                additional_pattern = re.compile(r'\b(' + '|'.join(escaped) + r')\b')
                 if additional_pattern.search(check_str_clean):
                     return False, "Protected information detected."
 

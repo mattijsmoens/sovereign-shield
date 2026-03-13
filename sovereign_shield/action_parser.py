@@ -84,7 +84,7 @@ class ActionParser:
 
             if action_line:
                 # Extract TOOL(payload)
-                tool_match = re.match(r"<?([ A-Z_]+)\((.*?)\)>?", action_line, re.IGNORECASE)
+                tool_match = re.match(r"<?([A-Z_]+)\((.*?)\)>?", action_line, re.IGNORECASE)
                 if tool_match:
                     action = tool_match.group(1).strip().upper()
                     payload = tool_match.group(2).strip()

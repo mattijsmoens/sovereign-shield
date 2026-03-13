@@ -448,7 +448,7 @@ class AdaptiveShield:
             dict with: status, pruned_keywords, category, message
         """
         # Block pruning if disabled or in manual mode
-        if not self._allow_pruning or not self.auto_deploy:
+        if not self._allow_pruning or not self._auto_deploy:
             # Still log the false positive report for admin review
             with self._lock:
                 conn = self._get_conn()
@@ -722,7 +722,7 @@ class AdaptiveShield:
         conn.close()
         return count
 
-    def get_reports(self) -> list[dict]:
+    def get_reports(self) -> List[dict]:
         """Get all submitted reports."""
         conn = self._get_conn()
         cur = conn.cursor()
@@ -732,12 +732,12 @@ class AdaptiveShield:
         return rows
 
     @property
-    def pending_rules(self) -> list[dict]:
+    def pending_rules(self) -> List[dict]:
         """Get all rules waiting for approval."""
         return self.get_rules(status="pending")
 
     @property
-    def active_rules(self) -> set[str]:
+    def active_rules(self) -> Set[str]:
         """Currently active custom rules (read-only copy)."""
         return set(self._custom_rules)
 

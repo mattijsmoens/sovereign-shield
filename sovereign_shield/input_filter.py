@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 InputFilter - Input Sanitization Engine
 =======================================
@@ -324,7 +325,7 @@ class InputFilter:
             2. Space ratio < 5% AND vowel ratio < 10%
             3. Space ratio < 2% AND length > 60 (extremely dense)
 
-        URLs are exempted since they naturally lack spaces and vowels.
+        Individual URL-like tokens are exempted, but the overall text is still checked.
 
         Args:
             text: Text to analyze.
@@ -332,23 +333,32 @@ class InputFilter:
         Returns:
             True if the text appears to be gibberish/encoded.
         """
-        # Exempt URLs
-        if text.startswith(("http://", "https://", "magnet:", "www.")):
+        # Strip out URL-like tokens so they don't skew the entropy check,
+        # but still check the remaining text
+        import re as _re
+        url_pattern = _re.compile(r'https?://\S+|www\.\S+|magnet:\S+')
+        non_url_text = url_pattern.sub('', text).strip()
+
+        # If the entire input is just a URL, allow it
+        if not non_url_text:
             return False
-        if len(text) > 50:
-            space_ratio = text.count(" ") / len(text)
+
+        # Check the non-URL portion
+        check_text = non_url_text
+        if len(check_text) > 50:
+            space_ratio = check_text.count(" ") / len(check_text)
 
             # Base64 signature: no spaces + ends with = or has high base64 char density
             if space_ratio < 0.02:
-                b64_chars = sum(1 for c in text if c in '=+/0123456789')
-                b64_ratio = b64_chars / len(text)
-                if b64_ratio > 0.08 or text.rstrip().endswith('='):
+                b64_chars = sum(1 for c in check_text if c in '=+/0123456789')
+                b64_ratio = b64_chars / len(check_text)
+                if b64_ratio > 0.08 or check_text.rstrip().endswith('='):
                     return True
 
             # Original heuristic: low spaces + low vowels
             if space_ratio < 0.05:
                 vowels = set("aeiouAEIOU")
-                vowel_count = sum(1 for c in text if c in vowels)
-                if vowel_count / len(text) < 0.1:
+                vowel_count = sum(1 for c in check_text if c in vowels)
+                if vowel_count / len(check_text) < 0.1:
                     return True
         return False

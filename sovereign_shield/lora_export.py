@@ -301,6 +301,8 @@ class LoRAExporter:
 
         # If no pattern matched, prepend a hedge
         if hedged == text:
+            if not text:
+                return text
             hedged = f"I'm not entirely sure, but {text[0].lower()}{text[1:]}"
 
         return hedged

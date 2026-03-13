@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sovereign-shield"
-version = "1.2.1"
+version = "1.2.2"
 description = "AI security framework: prompt injection firewall, tamper-proof integrity verification, ethical guardrails, and DDoS protection."
 readme = "README.md"
 license = {file = "LICENSE"}

@@ -99,6 +99,28 @@ class HITLApproval:
 
         # Load persisted state
         self._load_ledger()
+        # Prune old completed/expired entries
+        self._cleanup_expired()
+
+    def _cleanup_expired(self, max_age_seconds=86400):
+        """
+        Remove completed/expired entries older than max_age_seconds from memory.
+        Keeps the dict bounded in long-running processes.
+        """
+        now = time.time()
+        to_remove = []
+        for aid, req in self._approvals.items():
+            age = now - req.get("created_at", now)
+            if age > max_age_seconds and req["status"] != ApprovalStatus.PENDING:
+                to_remove.append(aid)
+            elif req["status"] == ApprovalStatus.PENDING and now > req.get("expires_at", now):
+                req["status"] = ApprovalStatus.EXPIRED
+                to_remove.append(aid)
+        if to_remove:
+            for aid in to_remove:
+                del self._approvals[aid]
+            self._save_ledger()
+            logger.debug(f"[HITL] Cleaned up {len(to_remove)} old approval entries.")
 
     # ------------------------------------------------------------------
     # LEDGER PERSISTENCE
@@ -108,7 +130,7 @@ class HITLApproval:
         """Load persisted approval state from disk."""
         try:
             if os.path.exists(self.ledger_path):
-                with open(self.ledger_path, "r") as f:
+                with open(self.ledger_path, "r", encoding="utf-8") as f:
                     self._approvals = json.load(f)
         except Exception as e:
             logger.warning(f"[HITL] Could not load ledger: {e}")
@@ -120,7 +142,7 @@ class HITLApproval:
             ledger_dir = os.path.dirname(self.ledger_path)
             if ledger_dir:
                 os.makedirs(ledger_dir, exist_ok=True)
-            with open(self.ledger_path, "w") as f:
+            with open(self.ledger_path, "w", encoding="utf-8") as f:
                 json.dump(self._approvals, f, indent=2)
         except Exception as e:
             logger.error(f"[HITL] Failed to save ledger: {e}")

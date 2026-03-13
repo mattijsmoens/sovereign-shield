@@ -165,7 +165,8 @@ class SIEMLogger:
         if severity is None:
             severity = _EVENT_SEVERITY.get(event_type, Severity.MEDIUM)
 
-        timestamp = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+        import datetime
+        timestamp = datetime.datetime.now(datetime.timezone.utc).astimezone().isoformat(timespec="seconds")
         epoch = time.time()
 
         event = {

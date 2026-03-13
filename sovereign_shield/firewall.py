@@ -84,7 +84,7 @@ class Firewall:
         """Load the persisted block ledger from disk."""
         try:
             if os.path.exists(self.ledger_path):
-                with open(self.ledger_path, "r") as f:
+                with open(self.ledger_path, "r", encoding="utf-8") as f:
                     ledger = json.load(f)
                     self.blocked_users = ledger.get("blocked", {})
                     self.rate_limit_store = ledger.get("history", {})
@@ -99,7 +99,7 @@ class Firewall:
             ledger_dir = os.path.dirname(self.ledger_path)
             if ledger_dir:
                 os.makedirs(ledger_dir, exist_ok=True)
-            with open(self.ledger_path, "w") as f:
+            with open(self.ledger_path, "w", encoding="utf-8") as f:
                 json.dump({
                     "blocked": self.blocked_users,
                     "history": self.rate_limit_store
@@ -184,7 +184,9 @@ class Firewall:
             # Step 5: Record this message timestamp
             timestamps.append(now)
             self.rate_limit_store[str_uid] = timestamps
-            self._save_ledger()
+            # Note: we only persist to disk on block events (above),
+            # not on every request. This avoids disk I/O bottleneck under load.
+            # In-memory state is sufficient for rate tracking.
 
             return True, "Allowed"
 

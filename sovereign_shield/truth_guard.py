@@ -375,7 +375,7 @@ class TruthGuard:
                         s_lower.startswith("step ") or
                         s_lower.startswith("option ") or
                         s_lower.startswith("item ") or
-                        "results" in s_lower and len(sentence) < 40
+                        ("results" in s_lower and len(sentence) < 40)
                     )
                     if not trivial:
                         markers.append("numerical")
@@ -541,8 +541,16 @@ class TruthGuard:
                            reason=f"Verified: tool used this session. Markers: {markers}")
             return True, f"Verified: verification tool used this session."
 
-        # Step 5: Check fact cache
-        cached = self.lookup_fact(answer_text)
+        # Step 5: Check fact cache (check individual sentences, not the full answer)
+        # Facts are stored as individual claims, so hashing the full answer won't match.
+        sentences = re.split(r'[.!?]+', answer_text)
+        cached = None
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if len(sentence) > 10:  # Skip fragments
+                cached = self.lookup_fact(sentence)
+                if cached:
+                    break
         if cached:
             self._log_check(check_id, session_id, answer_text,
                            had_markers=True, had_verification=True,

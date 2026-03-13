@@ -85,9 +85,9 @@ class CoreSafety(metaclass=FrozenNamespace):
     ALLOW_FILE_DELETION    = False    # Absolute ban on deleting non-temp files
     ALLOW_NETWORK_SCANNING = False    # Absolute ban on port scanning
     ALLOW_SELF_HARM        = False    # Ban on modifying critical system files
-    RESTRICTED_DOMAINS = [
+    RESTRICTED_DOMAINS = (
         "darkweb", ".onion", "porn", "hacking", "exploit", "malware"
-    ]
+    )
 
     # ---------------------------------------------------------------
     # MUTABLE STATE (stored in dict to bypass FrozenNamespace)
@@ -203,11 +203,11 @@ class CoreSafety(metaclass=FrozenNamespace):
         lockfile_path = os.path.join(data_dir, ".core_safety_lock")
         if not os.path.exists(lockfile_path):
             cls._SELF_HASH = cls.get_self_hash()
-            with open(lockfile_path, "w") as f:
+            with open(lockfile_path, "w", encoding="utf-8") as f:
                 f.write(cls._SELF_HASH)
             logger.info(f"[CoreSafety] First boot seal imprinted. Hash: {cls._SELF_HASH[:16]}...")
         else:
-            with open(lockfile_path, "r") as f:
+            with open(lockfile_path, "r", encoding="utf-8") as f:
                 cls._SELF_HASH = f.read().strip()
             logger.info(f"[CoreSafety] Seal restored from lockfile. Hash: {cls._SELF_HASH[:16]}...")
         cls.verify_integrity()
@@ -266,9 +266,14 @@ class CoreSafety(metaclass=FrozenNamespace):
                             if len(content) == 2:
                                 last_date, count_str = content
                                 if last_date == current_date:
-                                    usage = int(count_str)
+                                    try:
+                                        usage = int(count_str)
+                                    except ValueError:
+                                        logger.warning("Budget file corrupted (bad count). Resetting to 0.")
+                                        usage = 0
                             else:
-                                raise ValueError("Budget file corrupted: unexpected format.")
+                                logger.warning("Budget file corrupted (unexpected format). Resetting to 0.")
+                                usage = 0
                 if usage >= max_per_day:
                     return False, f"Daily action limit reached ({usage}/{max_per_day})."
                 usage += 1
@@ -329,7 +334,12 @@ class CoreSafety(metaclass=FrozenNamespace):
                 return False, reason
 
         # --- Check 2: Killswitch ---
-        if os.path.exists("KILLSWITCH"):
+        # Check in both the data directory and the script directory (absolute paths)
+        _killswitch_paths = [
+            os.path.join(os.path.dirname(__file__), "..", "data", "KILLSWITCH"),
+            os.path.join(os.path.dirname(__file__), "..", "KILLSWITCH"),
+        ]
+        if any(os.path.exists(ks) for ks in _killswitch_paths):
             logger.critical("KILLSWITCH file detected. Terminating immediately.")
             os._exit(1)
 
@@ -381,9 +391,11 @@ class CoreSafety(metaclass=FrozenNamespace):
         # --- Check 7: Write File Whitelist ---
         # Only allows writing to safe file types. Self-modification is banned.
         if action_type == "WRITE_FILE":
-            target = os.path.abspath(payload).lower()
-            myself = os.path.abspath(__file__).lower()
-            if myself in target:
+            target = os.path.normpath(os.path.abspath(payload)).lower()
+            myself = os.path.normpath(os.path.abspath(__file__)).lower()
+            # Block writes to this file or any file in the sovereign_shield package dir
+            my_dir = os.path.dirname(myself)
+            if target == myself or target.startswith(my_dir + os.sep):
                 logger.critical("BLOCKED: Attempted self-modification of security module.")
                 return False, "Self-modification of security module is forbidden."
             ext = os.path.splitext(target)[1].lower()
@@ -395,11 +407,14 @@ class CoreSafety(metaclass=FrozenNamespace):
         # Blocks reading source code, configs, and environment files.
         # Also catches null byte injection attempts.
         if action_type in ["READ_FILE", "CAT", "TYPE", "GET_CONTENT"]:
-            target = str(payload).lower()
+            target = os.path.normpath(os.path.abspath(str(payload))).lower()
             if "\0" in target:
                 logger.critical("BLOCKED: Null byte injection in file path.")
                 return False, "Null byte injection detected in file path."
-            if target.endswith(".py") or ".env" in target or "config" in target:
+            target_basename = os.path.basename(target)
+            if (target.endswith(".py")
+                    or target_basename.startswith(".env")
+                    or target_basename in ("config", "config.json", "config.yaml", "config.yml", "config.ini", "config.toml")):
                 logger.critical(f"BLOCKED: Source/config read attempt. Target: {payload}")
                 return False, "Access denied: Source code and configuration files are protected."
             if not any(target.endswith(ext) for ext in allowed_read_extensions):
@@ -488,7 +503,10 @@ class CoreSafety(metaclass=FrozenNamespace):
     @staticmethod
     def activate_killswitch():
         """Create the killswitch file to halt the system on next audit."""
-        with open("KILLSWITCH", "w", encoding="utf-8") as f:
+        data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
+        os.makedirs(data_dir, exist_ok=True)
+        ks_path = os.path.join(data_dir, "KILLSWITCH")
+        with open(ks_path, "w", encoding="utf-8") as f:
             f.write("TERMINATE IMMEDIATELY")
         logger.critical("KILLSWITCH ACTIVATED. System will terminate on next audit cycle.")
 
@@ -509,8 +527,13 @@ class CoreSafety(metaclass=FrozenNamespace):
         """
         try:
             import resource  # Unix
-            mem_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-            mem_mb = mem_kb / 1024
+            import platform
+            mem_raw = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            # macOS returns bytes; Linux returns kilobytes
+            if platform.system() == "Darwin":
+                mem_mb = mem_raw / (1024 * 1024)
+            else:
+                mem_mb = mem_raw / 1024
             if mem_mb > max_memory_mb:
                 logger.critical(f"RESOURCE LIMIT: Memory usage {mem_mb:.1f}MB exceeds {max_memory_mb}MB limit.")
                 return False

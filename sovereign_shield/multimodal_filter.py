@@ -299,6 +299,8 @@ class MultiModalFilter:
                             return "audio/wav"
                         elif header[8:12] == b"WEBP":
                             return "image/webp"
+                        else:
+                            return "application/octet-stream"
                     return mime_type
 
         # Fall back to extension
@@ -374,7 +376,7 @@ class MultiModalFilter:
                 "exe", "bat", "cmd", "com", "msi", "ps1", "vbs",
                 "js", "sh", "py", "rb", "pl", "php",
             }
-            for part in parts[1:-1]:
+            for part in parts[1:]:
                 if part.lower() in dangerous_exts:
                     return False, f"Suspicious double extension detected: {filename}"
 
@@ -387,13 +389,25 @@ class MultiModalFilter:
     @staticmethod
     def _check_embedded_executable(data):
         """Check for executable signatures embedded within file data."""
-        # Windows PE header
-        if b"MZ" in data[:2] or b"MZ" in data[100:200]:
+        # Scan the first 4KB for executable signatures
+        scan_range = data[:4096]
+
+        # Windows PE header (MZ magic + PE signature)
+        # Just b"MZ" alone is too broad — 2 bytes can appear randomly in image data.
+        # Real PE executables always contain both MZ and the PE\0\0 signature.
+        if b"MZ" in scan_range and b"PE\x00\x00" in data[:65536]:
             return False, "Embedded Windows executable signature detected."
 
         # ELF header (Linux executable)
-        if b"\x7fELF" in data[:10]:
+        if b"\x7fELF" in scan_range:
             return False, "Embedded Linux executable signature detected."
+
+        # Mach-O headers (macOS executable)
+        macho_magics = [b"\xfe\xed\xfa\xce", b"\xfe\xed\xfa\xcf",
+                        b"\xce\xfa\xed\xfe", b"\xcf\xfa\xed\xfe"]
+        for magic in macho_magics:
+            if magic in scan_range:
+                return False, "Embedded macOS executable signature detected."
 
         # Common script signatures within binary data
         script_sigs = [

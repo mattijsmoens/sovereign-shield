@@ -25,9 +25,19 @@ Think of it as a bouncer for AI. The AI can think whatever it wants, but nothing
 
 ---
 
-## Upgrading to 1.2.1
+## Upgrading to 1.2.2
 
 If upgrading from an earlier version, **delete your `data/.core_safety_lock` and `data/.conscience_lock` files** after installing. The hash integrity check seals the source code — since the source changed, your old lockfile will mismatch and trigger an integrity violation. It reseals automatically on next startup.
+
+### What changed in 1.2.1 → 1.2.2
+
+Security audit patch — 10 fixes across 5 files:
+
+- **CoreSafety**: `RESTRICTED_DOMAINS` is now an immutable tuple (was a mutable list). Lockfile I/O uses explicit `encoding="utf-8"`. Read file path check now normalizes with `os.path.normpath`.
+- **Conscience**: Integrity violation now calls `os._exit(1)` (unkillable) instead of `sys.exit(1)` (catchable). Initialization failure now terminates the process (fail-closed) instead of silently continuing. Lockfile I/O uses explicit `encoding="utf-8"`.
+- **Firewall**: Ledger file I/O uses explicit `encoding="utf-8"` for cross-platform compatibility.
+- **HITLApproval**: Ledger file I/O uses explicit `encoding="utf-8"`.
+- **MultiModalFilter**: Double-extension detection now catches the final extension (e.g., `photo.jpg.exe`).
 
 ### What changed in 1.2.0 → 1.2.1
 
