@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sovereign-shield"
+version = "2.0.0"
+description = "Production-grade AI defense — deterministic filters + optional LLM veto verification."
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.8"
+authors = [
+    {name = "Mattijs Moens"}
+]
+keywords = [
+    "ai-security",
+    "prompt-injection",
+    "firewall",
+    "llm-security",
+    "content-moderation",
+    "input-validation",
+    "tamper-detection",
+    "ethical-ai",
+    "jailbreak-prevention",
+    "self-improving",
+    "adaptive-learning",
+    "multilingual-security"
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+
+[project.optional-dependencies]
+gemini = ["google-genai>=1.0.0"]
+openai = ["openai>=1.0.0"]
+all = ["google-genai>=1.0.0", "openai>=1.0.0"]
+
+[project.urls]
+Homepage = "https://github.com/mattijsmoens/sovereign-shield"
+Documentation = "https://github.com/mattijsmoens/sovereign-shield#readme"
+Issues = "https://github.com/mattijsmoens/sovereign-shield/issues"
+
+[tool.setuptools.packages.find]
+include = ["sovereign_shield*"]
+
+[tool.setuptools.package-data]
+sovereign_shield = ["trained_rules.json"]
+
