@@ -157,9 +157,6 @@ class AdaptiveShield:
         # Init database
         self._init_db()
 
-        # Auto-seed from bundled training data on first run
-        self._auto_seed()
-
         # Load any previously approved rules
         self._load_approved_rules()
 
@@ -300,14 +297,13 @@ class AdaptiveShield:
         # Layer 1: Built-in filter (includes multi-decode + multilingual)
         is_safe, result = self._filter.process(text)
 
-        # Layer 2a: Legacy custom adaptive rules (exact substring match)
+        # Layer 2a: Custom adaptive rules (require 2+ matches to reduce FP)
         if is_safe and self._custom_rules:
             text_lower = text.lower()
-            for rule in self._custom_rules:
-                if rule in text_lower:
-                    is_safe = False
-                    result = f"Blocked by adaptive rule: matched '{rule}'"
-                    break
+            matched_rules = [rule for rule in self._custom_rules if rule in text_lower]
+            if len(matched_rules) >= 2:
+                is_safe = False
+                result = f"Blocked by adaptive rules: matched {matched_rules[:3]}"
 
         # Layer 2b: Category keyword matching (v2 self-expanding minefield)
         # Merge predefined categories with learned keywords for full coverage

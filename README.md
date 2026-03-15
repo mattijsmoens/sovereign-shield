@@ -7,6 +7,10 @@
 [![Python](https://img.shields.io/badge/python-3.8+-green.svg)](https://python.org)
 [![Zero Dependencies](https://img.shields.io/badge/core%20dependencies-0-brightgreen.svg)](https://python.org)
 
+> **Pre-trained keywords:** Ships with 22,704 attack keywords learned from 389K+ real attacks and validated against 78K benign prompts. Import them with `python -m sovereign_shield.import_rules` — or start clean and let AdaptiveShield learn from scratch.
+
+> **Hash Lock Files:** Sovereign Shield hash-seals its security modules (`core_safety.py`, `conscience.py`) on first boot. If you modify these source files, you must delete the corresponding `.core_safety_lock` and/or `.conscience_lock` files — otherwise the integrity check will terminate the process.
+
 ---
 
 ## Why This Exists
@@ -16,7 +20,7 @@
 The architecture is **deterministic at its core**. The LLM is an **optional** middle layer — not the final authority. Every decision flows through deterministic validation:
 
 1. **Input → Deterministic filters** (keyword, encoding, pattern detection) → blocks obvious attacks instantly
-2. **Passed inputs → AdaptiveShield** (9,754 learned rules + 18,666 keywords from 389K real attacks)
+2. **Passed inputs → AdaptiveShield** (22,704 keywords from 389K real attacks, validated against 78K benign prompts)
 3. **Passed inputs → LLM verification** *(optional)* — "Is this SAFE or UNSAFE?"
 4. **LLM response → Deterministic validation** (CoreSafety + Conscience checks on the LLM's own output)
 
@@ -64,10 +68,10 @@ User Input
 │  └──────┬───────┘                    │
 │         │ passed                     │
 │  ┌──────▼───────┐                    │
-│  │AdaptiveShield │ ← 9,754 rules +   │
-│  │               │   18,666 keywords │
+│  │AdaptiveShield │ ← 22,704 keywords │
 │  │               │   from 389K       │
 │  │               │   real attacks    │
+│  │               │   (opt-in import) │
 │  └──────┬───────┘                    │
 │         │ passed                     │
 └─────────┼────────────────────────────┘
@@ -157,7 +161,7 @@ If the input contains a whitelisted keyword (e.g. an internal tool invocation), 
 
 ### 2. AdaptiveShield
 
-Ships with **9,754 learned rules and 18,666 keywords** extracted from 389K+ real attacks (HackAPrompt dataset). These are auto-loaded into a local SQLite database on first run — zero configuration needed. The adaptive system also learns from new attacks over time: missed attacks can be reported, sandbox-tested, and auto-deployed as new rules.
+Ships with **22,704 attack keywords** extracted from 389K+ real attacks (HackAPrompt dataset) and validated against 78K real benign prompts. Keywords are **not** auto-loaded — import them with `python -m sovereign_shield.import_rules` or let AdaptiveShield learn from scratch via `report()`. The adaptive system learns from new attacks over time: missed attacks can be reported, sandbox-tested, and validated against historical benign traffic before deployment.
 
 ### 3. Conscience
 
@@ -266,7 +270,14 @@ pip install sovereign-shield[all]       # All providers
 
 Ollama requires no extra dependencies (uses stdlib `urllib`).
 
-> **Pre-trained:** Ships with 9,754 rules and 18,666 keywords learned from 389K+ real attacks (HackAPrompt dataset). These are auto-loaded into AdaptiveShield on first run — zero setup needed.
+> **Two ways to get started:**
+>
+> **Option A — Import pre-trained keywords:** Load 22,704 keywords learned from 389K+ real attacks and validated against 78K benign prompts:
+> ```bash
+> python -m sovereign_shield.import_rules
+> ```
+>
+> **Option B — Let it learn on its own:** Start with a clean database. AdaptiveShield will learn from attacks as they're reported via `report()` — building its own ruleset over time with zero pre-configuration.
 
 ---
 
@@ -523,15 +534,15 @@ Curated prompt injection attacks including roleplay, instruction override, multi
 
 ### HackAPrompt Dataset (389,405 samples)
 
-Full dataset from the HackAPrompt competition, run through the deterministic layer only.
+Full dataset from the HackAPrompt competition, run through the deterministic layer only. Keywords validated against 78K real benign prompts (ShareGPT + Alpaca + OpenAssistant).
 
 | Metric | Value |
 | ------ | ----- |
 | **Attacks Trained** | 389,405 |
-| **Corpus B Detection AFTER** | 61.6% |
-| **Keywords Learned** | 18,666 |
-| **Rules Learned** | 9,754 |
-| **Speed** | 137 prompts/sec |
+| **Keywords Learned** | 22,704 |
+| **Keywords Rejected (FP)** | 779 |
+| **Benign FP Rate** | 0.4% |
+| **Speed** | 98 prompts/sec |
 
 ---
 
