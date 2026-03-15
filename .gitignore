@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.eggs/
+dist/
+build/
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data / Runtime
+*.db
+*.json
+!sovereign_shield/trained_rules.json
+daily_usage.txt
+.core_safety_lock
+.conscience_lock
+_test_lora_data/
+_test_truth_data/
+data/
+
+# Test & Training scripts
+test_*.py
+train*.py
+stress_test*.py
+corpus_*.py
+jailbreak_corpus*.py
+seed_benign.py
+ROADMAP.md
+
+# Env
+.env
+.venv/
+venv/
