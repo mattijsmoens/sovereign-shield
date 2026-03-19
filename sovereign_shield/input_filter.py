@@ -29,8 +29,50 @@ _RAW_ESCAPE_PATTERN = re.compile(r'\\u[0-9a-fA-F]{4}|\\x[0-9a-fA-F]{2}')
 # Catches ChatML (<|im_start|>), LLaMA ([INST]), Llama2 (<<SYS>>)
 _LLM_TOKEN_PATTERN = re.compile(r'<\|.*?\|>|\[/?INST\]|<<SYS>>', re.IGNORECASE)
 
+# Persona hijack / jailbreak patterns — single-match is enough
+_PERSONA_HIJACK_PATTERN = re.compile(
+    r'(?:'
+    r'YOU\s+ARE\s+NOW\s+DAN'
+    r'|DO\s+ANYTHING\s+NOW'
+    r'|ACT\s+AS\s+(?:IF\s+YOU\s+HAVE\s+NO|AN?\s+(?:EVIL|UNRESTRICTED|UNFILTERED))'
+    r'|PRETEND\s+YOU\s+ARE\s+(?:AN?\s+)?(?:EVIL|UNRESTRICTED|UNFILTERED|MALICIOUS)'
+    r'|FROM\s+NOW\s+ON.*?(?:RESPOND|YOU\s+WILL)\s+(?:AS|WITHOUT)'
+    r'|RESPOND\s+AS\s+(?:IF|THOUGH).*?(?:NO|WITHOUT)\s+(?:FILTER|RESTRICTION|RULE|CONTENT|SAFETY|GUIDELINE)'
+    r'|(?:NO|WITHOUT)\s+CONTENT\s+FILTER'
+    r'|(?:NO|WITHOUT)\s+SAFETY\s+GUIDELINE'
+    r')',
+    re.IGNORECASE,
+)
+
 # ANSI terminal escape sequences (colors, cursor moves, etc.)
 _ANSI_ESCAPE_PATTERN = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+
+# ── Word-level co-occurrence detection ──────────────────────
+# Instead of requiring exact multi-word substrings, detect when
+# ACTION verbs co-occur with TARGET nouns in the same input.
+# This defeats the word-insertion bypass ("DISABLE ALL SAFETY"
+# dodges the phrase "DISABLE SAFETY" but still contains both words).
+_DANGER_ACTIONS = {
+    "OVERRIDE", "DISABLE", "IGNORE", "BYPASS", "REMOVE", "DELETE",
+    "DEACTIVATE", "PURGE", "ERASE", "REVOKE", "DROP", "NUKE",
+    "SUSPEND", "LIFT", "ELIMINATE", "DISREGARD", "FORGET",
+    "SKIP", "CIRCUMVENT", "NEUTRALIZE", "STRIP", "SHRED",
+    # Multilingual action verbs
+    "IGNORIERE", "IGNOREZ", "IGNORA", "IGNORAR",     # DE/FR/IT/ES/PT
+    "DESACTIVAR", "SUPPRIMER", "DEAKTIVIEREN",         # ES/FR/DE
+    "ACTIVA", "STARTE", "PASSEZ",                      # ES/DE/FR
+}
+_DANGER_TARGETS = {
+    "SAFETY", "SECURITY", "PROTOCOLS", "GUARDRAILS", "FILTERS",
+    "RESTRICTIONS", "GUIDELINES", "RULES", "DIRECTIVES",
+    "INSTRUCTIONS", "SAFEGUARDS", "CONSTRAINTS", "BOUNDARIES",
+    "PROTECTIONS", "MEASURES", "POLICIES", "LIMITS",
+    # Multilingual target nouns
+    "ANWEISUNGEN", "INSTRUCCIONES",                     # DE/ES
+    "ENTWICKLERMODUS", "DESARROLLADOR", "DEVELOPPEUR",  # DE/ES/FR
+    "SICHERHEIT", "SEGURIDAD",                          # DE/ES
+    "EINSCHR\u00c4NKUNGEN", "RESTRICCIONES",                    # DE/ES
+}
 
 # Default prompt injection keywords
 DEFAULT_BAD_SIGNALS = [
@@ -170,15 +212,22 @@ class InputFilter:
     Deterministic input sanitization and injection detection engine.
 
     All user inputs should pass through this filter before reaching any
-    processing logic. The pipeline runs 7 deterministic checks with
+    processing logic. The pipeline runs 9 deterministic checks with
     zero external dependencies:
 
+        0. Invisible character stripping (diacritics, null bytes → spaces)
         1. Unicode NFKC normalization (defeats homoglyph attacks)
         2. ANSI escape code stripping
         3. Entropy/gibberish detection (catches Base64/hex payloads)
+        3.5. Repetition flood detection
         4. Raw unicode/hex escape injection blocking
         5. LLM structural token injection blocking
+        5.5. Persona hijack / jailbreak detection (single-match regex)
         6. Keyword-based prompt injection detection
+           6a. High-confidence single-match keywords
+           6b. Standard 2+ match threshold
+        6.5. Word-level co-occurrence detection (multilingual)
+        6.7. Multi-decode expansion (ROT13, reversed, leet, etc.)
         7. Safe keyword bypass (for internal tools)
 
     Usage:
@@ -260,17 +309,47 @@ class InputFilter:
             logger.warning("[InputFilter] Blocked LLM structural token injection.")
             return False, "LLM structural token injection detected."
 
+        # --- Layer 5.5: Persona Hijack / Jailbreak Detection ---
+        if _PERSONA_HIJACK_PATTERN.search(text):
+            logger.warning(f"[InputFilter] Blocked persona hijack/jailbreak: {text[:50]}...")
+            return False, "Persona hijack / jailbreak pattern detected."
+
         # --- Layer 6: Keyword Injection Detection ---
-        # Require 2+ distinct bad-signal matches to block.
+        upper_text = text.upper()
+
+        # Layer 6a: High-confidence single-match keywords
+        # These patterns are almost never benign — 1 hit is enough.
+        _HIGH_CONFIDENCE = [
+            "IGNORE PREVIOUS", "IGNORE ALL INSTRUCTIONS",
+            "DISREGARD ALL INSTRUCTIONS", "FORGET ALL INSTRUCTIONS",
+            "OVERRIDE SYSTEM PROMPT", "NEW SYSTEM PROMPT",
+        ]
+        for hc in _HIGH_CONFIDENCE:
+            if hc in upper_text:
+                logger.warning(f"[InputFilter] Blocked high-confidence injection keyword: {text[:50]}...")
+                return False, "Prompt injection detected (high-confidence keyword)."
+
+        # Layer 6b: Require 2+ distinct bad-signal matches to block.
         # A single trigger word can appear in legitimate text (e.g. "override CSS"),
         # but real attacks always contain multiple injection phrases.
-        upper_text = text.upper()
         hit_count = sum(1 for bad in self.bad_signals if bad in upper_text)
         if hit_count >= 2:
             logger.warning(f"[InputFilter] Blocked prompt injection keyword: {text[:50]}...")
             return False, "Prompt injection detected."
 
-        # --- Layer 6.5: Multi-Decode Expansion ---
+        # --- Layer 6.5: Word-Level Co-occurrence ---
+        # Defeats word-insertion bypass ("DISABLE ALL SAFETY" dodges
+        # "DISABLE SAFETY" but both danger words are still present).
+        words_in_text = set(upper_text.split())
+        # Strip punctuation from words for matching
+        words_clean = {w.strip('.,;:!?\'"()[]{}') for w in words_in_text}
+        action_hits = words_clean & _DANGER_ACTIONS
+        target_hits = words_clean & _DANGER_TARGETS
+        if action_hits and target_hits:
+            logger.warning(f"[InputFilter] Blocked co-occurrence: actions={action_hits} targets={target_hits} in: {text[:50]}...")
+            return False, "Prompt injection detected (action+target co-occurrence)."
+
+        # --- Layer 6.7: Multi-Decode Expansion ---
         # Run multiple decodings of the input through the same keyword check.
         # Catches ROT13, reversed, leet speak, whitespace-smuggled, and pig latin.
         for variant in self._multi_decode(text):
@@ -279,6 +358,11 @@ class InputFilter:
             if variant_hits >= 2:
                 logger.warning(f"[InputFilter] Blocked encoded injection (multi-decode): {text[:50]}...")
                 return False, "Encoded prompt injection detected (multi-decode)."
+            # Also check co-occurrence on decoded variants
+            vwords = {w.strip('.,;:!?\'"()[]{}') for w in variant_upper.split()}
+            if (vwords & _DANGER_ACTIONS) and (vwords & _DANGER_TARGETS):
+                logger.warning(f"[InputFilter] Blocked encoded co-occurrence (multi-decode): {text[:50]}...")
+                return False, "Encoded prompt injection detected (multi-decode co-occurrence)."
 
         # --- Layer 7: Safe Keyword Bypass ---
         # If the input contains a whitelisted keyword (e.g. internal tool name),
@@ -306,11 +390,12 @@ class InputFilter:
             '\u03B1': 'a', '\u03B5': 'e', '\u03B9': 'i', '\u03BF': 'o',
             '\u03C5': 'u',
             # Cyrillic
-            '\u0410': 'A', '\u0412': 'B', '\u0415': 'E', '\u041A': 'K',
-            '\u041C': 'M', '\u041D': 'H', '\u041E': 'O', '\u0420': 'P',
-            '\u0421': 'C', '\u0422': 'T', '\u0423': 'Y', '\u0425': 'X',
-            '\u0430': 'a', '\u0435': 'e', '\u043E': 'o', '\u0440': 'p',
-            '\u0441': 'c', '\u0443': 'y', '\u0445': 'x',
+            '\u0410': 'A', '\u0411': 'B', '\u0412': 'V', '\u0415': 'E',
+            '\u0418': 'I', '\u041A': 'K', '\u041C': 'M', '\u041D': 'H',
+            '\u041E': 'O', '\u0420': 'P', '\u0421': 'C', '\u0422': 'T',
+            '\u0423': 'Y', '\u0425': 'X',
+            '\u0430': 'a', '\u0435': 'e', '\u0438': 'i', '\u043E': 'o',
+            '\u0440': 'p', '\u0441': 'c', '\u0443': 'y', '\u0445': 'x',
         }
         return ''.join(_HOMOGLYPHS.get(c, c) for c in text)
 
@@ -334,7 +419,10 @@ class InputFilter:
             cat = unicodedata.category(char)
             if cat == 'Cf':  # Invisible format characters
                 continue
+            if cat == 'Mn':  # Combining diacritics (defeats accent obfuscation)
+                continue
             if cat == 'Cc' and char not in _KEEP_CONTROL:
+                result.append(' ')  # Replace with space to preserve word boundaries
                 continue
             result.append(char)
         return ''.join(result)
@@ -342,11 +430,14 @@ class InputFilter:
     @staticmethod
     def _is_repetition_flood(text):
         """
-        Detect repetition flooding: the same word repeated 10+ times.
-
-        Catches patterns like "unlock unlock unlock ... unlock everything"
-        that don't match any keyword individually but are clearly adversarial.
+        Detect repetition flooding: the same word repeated 10+ times,
+        or single-character flood (50+ identical characters).
         """
+        # Single-character flood: 50+ identical chars
+        if len(text) >= 50:
+            unique_chars = set(text.strip())
+            if len(unique_chars) <= 2:  # 1 char + maybe whitespace
+                return True
         words = text.lower().split()
         if len(words) < 12:
             return False
@@ -481,6 +572,11 @@ class InputFilter:
                 b64_ratio = b64_chars / len(check_text)
                 if b64_ratio > 0.08 or check_text.rstrip().endswith('='):
                     return True
+
+            # Hex-with-spaces signature: "4d61 6c69 6369 6f75 7320"
+            hex_pattern = re.compile(r'^[0-9a-fA-F]{2,4}(\s[0-9a-fA-F]{2,4}){5,}$')
+            if hex_pattern.match(check_text.strip()):
+                return True
 
             # Original heuristic: low spaces + low vowels
             if space_ratio < 0.05:
