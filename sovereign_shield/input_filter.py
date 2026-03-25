@@ -396,6 +396,14 @@ class InputFilter:
             '\u0423': 'Y', '\u0425': 'X',
             '\u0430': 'a', '\u0435': 'e', '\u0438': 'i', '\u043E': 'o',
             '\u0440': 'p', '\u0441': 'c', '\u0443': 'y', '\u0445': 'x',
+            # Ukrainian / Extended Cyrillic
+            '\u0456': 'i',  # Ukrainian і (VERY common homoglyph attack)
+            '\u0406': 'I',  # Ukrainian І (uppercase)
+            '\u0458': 'j',  # Cyrillic ј
+            '\u0455': 's',  # Cyrillic ѕ
+            '\u04BB': 'h',  # Cyrillic һ
+            # Latin-like IPA / modifier letters
+            '\u0261': 'g',  # Latin small letter script g
         }
         return ''.join(_HOMOGLYPHS.get(c, c) for c in text)
 

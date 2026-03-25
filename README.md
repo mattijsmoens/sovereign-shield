@@ -1,6 +1,6 @@
 # Sovereign Shield
 
-**Production-grade AI defense: deterministic + LLM veto verification.**
+**Production-grade AI defense: deterministic + LLM veto + HITL approval + file validation + hallucination detection.**
 
 [![PyPI](https://img.shields.io/pypi/v/sovereign-shield.svg)](https://pypi.org/project/sovereign-shield/)
 [![License](https://img.shields.io/badge/license-BSL%201.1-blue.svg)](LICENSE)
@@ -222,6 +222,98 @@ Like Conscience, CoreSafety is hash-sealed with an immutable lockfile.
 > The lock will be regenerated automatically on next run. If you don't delete it, the process will terminate with a tampering error.
 
 ---
+
+### 5. HITLApproval (Human-in-the-Loop)
+
+Pauses high-impact actions for explicit human approval before execution. Prevents autonomous AI agents from performing dangerous operations (DEPLOY, DELETE_FILE, DROP_DATABASE, etc.) without human oversight.
+
+```python
+from sovereign_shield import HITLApproval
+
+hitl = HITLApproval(ledger_path="hitl_ledger.json")
+
+# Low-impact → auto-allowed
+result = hitl.check_action("ANSWER", "hello")
+# {"status": "allowed", ...}
+
+# High-impact → requires approval
+result = hitl.check_action("DEPLOY", "production-server")
+# {"status": "approval_required", "approval_id": "abc123", ...}
+
+# Human approves
+hitl.approve(result["approval_id"])
+
+# Execute with exact parameter binding (prevents substitution attacks)
+hitl.execute_approved(result["approval_id"], "DEPLOY", "production-server")
+```
+
+**Security features:**
+- Parameter hash binding (SHA-256) — prevents action/payload substitution after approval
+- One-time execution — approvals are consumed after use (no replay)
+- Expiration — approvals expire after 5 minutes
+- Audit ledger — all decisions logged to disk
+
+---
+
+### 6. MultiModalFilter
+
+Validates file uploads via binary analysis. Pure Python, zero dependencies.
+
+```python
+from sovereign_shield import MultiModalFilter
+
+mmf = MultiModalFilter()
+
+# Valid JPEG
+result = mmf.validate_bytes(jpeg_bytes, filename="photo.jpg", declared_type="image/jpeg")
+# {"allowed": True, "actual_type": "image/jpeg", ...}
+
+# Executable disguised as image
+result = mmf.validate_bytes(exe_bytes, filename="photo.jpg")
+# {"allowed": False, "reason": "Executable binary detected", ...}
+```
+
+| Check | What It Catches |
+| ----- | --------------- |
+| **Magic Bytes** | Identifies file type from first bytes (JPEG, PNG, GIF, PDF, ZIP, etc.) |
+| **Type Spoofing** | Declared MIME type doesn't match actual magic bytes |
+| **Executable Payloads** | MZ (Windows), ELF (Linux), Mach-O (macOS), scripts with shebangs |
+| **Path Traversal** | `../../../etc/passwd` in filenames |
+| **Null Byte Injection** | `photo.jpg\x00.exe` in filenames |
+| **Double Extensions** | `document.pdf.exe`, `image.jpg.bat` |
+| **Extracted Text Injection** | Prompt injection hidden in OCR'd text from images |
+
+---
+
+### 7. TruthGuard
+
+Detects factual hallucinations in LLM output by checking for unverified confidence markers. Session-based — tracks tool usage and verifies that claims about data were backed by actual tool calls.
+
+```python
+from sovereign_shield import TruthGuard
+
+# Enabled mode (for stateful applications)
+tg = TruthGuard(enabled=True, db_path="truth.db")
+tg.start_session("session-1")
+tg.record_tool_use("session-1", "SEARCH", "bitcoin price")
+
+ok, reason = tg.check_answer("session-1", "Bitcoin is $84,322")
+# (True, "Verified: tool use recorded for session") — tool was used
+
+ok, reason = tg.check_answer("session-1", "Gold is $2,100 per ounce")
+# (False, "Unverified factual claim detected") — no tool use for this
+
+# Disabled mode (for stateless SaaS / APIs)
+tg = TruthGuard(enabled=False)
+ok, reason = tg.check_answer("any", "anything")
+# (True, "TruthGuard is disabled") — zero overhead
+```
+
+**Detection logic:**
+- Scans for confidence markers: currency symbols, percentages, specific numbers, "according to", "data shows", etc.
+- Allows hedged claims: "I think", "probably", "approximately"
+- Verifies against recorded tool usage per session
+- Toggleable: `enabled=False` makes all checks no-op
 
 ## LLM Veto (Tier 2)
 
@@ -568,7 +660,7 @@ Full dataset from the HackAPrompt competition, run through the deterministic lay
 
 | Package | Install | Description |
 | ------- | ------- | ----------- |
-| **sovereign-shield** | `pip install sovereign-shield` | Full defense: deterministic + LLM veto + adaptive learning |
+| **sovereign-shield** | `pip install sovereign-shield` | Full defense: deterministic + LLM veto + adaptive learning + HITL + file validation + hallucination detection |
 | **sovereign-shield-adaptive** | `pip install sovereign-shield-adaptive` | Standalone adaptive engine for self-improving rule learning |
 
 ---
