@@ -267,22 +267,7 @@ class AdaptiveShield:
         conn.commit()
         conn.close()
 
-    def _auto_seed(self):
-        """On first run (empty DB), auto-import bundled training data."""
-        conn = self._get_conn()
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM rules")
-        rule_count = cur.fetchone()[0]
-        conn.close()
 
-        if rule_count > 0:
-            return  # DB already has data
-
-        # Look for bundled trained_rules.json next to this module
-        json_path = os.path.join(os.path.dirname(__file__), "trained_rules.json")
-        if os.path.exists(json_path):
-            self.import_rules_json(json_path)
-            logger.info(f"Auto-seeded from bundled training data: {json_path}")
 
     def import_rules_json(self, path: str):
         """

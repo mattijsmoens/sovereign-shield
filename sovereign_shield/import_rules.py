@@ -1,10 +1,10 @@
 """
-Import pre-trained rules into AdaptiveShield database.
+Import rules into AdaptiveShield database from a JSON file.
 
 Usage:
-    python -m sovereign_shield.import_rules [path/to/trained_rules.json]
+    python -m sovereign_shield.import_rules path/to/rules.json [db_path]
 
-If no path is given, looks for trained_rules.json next to this module.
+The JSON file should have format: {"category_keywords": {...}, "approved_rules": [...]}
 """
 import os
 import sys
@@ -13,15 +13,14 @@ import sys
 def main():
     from .adaptive import AdaptiveShield
 
-    # Find the JSON file
-    if len(sys.argv) > 1:
-        json_path = sys.argv[1]
-    else:
-        json_path = os.path.join(os.path.dirname(__file__), "trained_rules.json")
+    if len(sys.argv) < 2:
+        print("Usage: python -m sovereign_shield.import_rules <rules.json> [db_path]")
+        sys.exit(1)
+
+    json_path = sys.argv[1]
 
     if not os.path.exists(json_path):
         print(f"ERROR: {json_path} not found.")
-        print(f"Usage: python -m sovereign_shield.import_rules [path/to/trained_rules.json]")
         sys.exit(1)
 
     # Determine DB path
@@ -41,7 +40,6 @@ def main():
     ada._custom_rules = set()
     ada._load_approved_rules()
 
-    total_kw = sum(len(v) for v in ada._category_keywords.items())
     print(f"\nLoaded: {len(ada._custom_rules):,} rules, "
           f"{sum(len(v) for v in ada._category_keywords.values()):,} keywords "
           f"across {len(ada._category_keywords)} categories")

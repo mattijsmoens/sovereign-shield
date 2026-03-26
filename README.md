@@ -7,7 +7,9 @@
 [![Python](https://img.shields.io/badge/python-3.8+-green.svg)](https://python.org)
 [![Zero Dependencies](https://img.shields.io/badge/core%20dependencies-0-brightgreen.svg)](https://python.org)
 
-> **Self-learning engine:** AdaptiveShield learns from attacks as they're reported — building and validating its own ruleset against historical benign traffic. No pre-trained keywords are shipped; the system starts clean and learns autonomously via the `report()` API.
+> **Safe Baseline:** Ships with a safe baseline of 11,954 common words across 15 languages. Single-word keyword matches that appear in this baseline are automatically exempt from triggering blocks, eliminating false positives from everyday vocabulary while preserving detection of security-relevant terms.
+
+> **Self-learning engine:** AdaptiveShield learns from attacks as they're reported, building and validating its own ruleset against historical benign traffic. The system starts clean and learns autonomously via the `report()` API.
 
 > **Hash Lock Files:** Sovereign Shield hash-seals its security modules (`core_safety.py`, `conscience.py`) on first boot. If you modify these source files, you must delete the corresponding `.core_safety_lock` and/or `.conscience_lock` files — otherwise the integrity check will terminate the process.
 
@@ -107,7 +109,7 @@ User Input
 
 ### 1. InputFilter
 
-The first line of defense. Every input passes through 9 sequential checks — all pure Python, zero dependencies.
+The first line of defense. Every input passes through 12 sequential checks, all pure Python, zero dependencies.
 
 #### Layer 0: Invisible Character Stripping
 Removes zero-width spaces (U+200B), bidirectional override characters, combining grapheme joiners, byte-order marks, **combining diacritics** (Unicode category `Mn`), and other invisible Unicode characters that attackers insert between letters to bypass keyword matching. Control characters (`Cc`) are replaced with spaces instead of stripped, preserving word boundaries.
@@ -156,12 +158,12 @@ Regex-based detection of jailbreak persona patterns. **Single-match is sufficien
 
 **Layer 6a: High-Confidence Single-Match** — Patterns like `IGNORE PREVIOUS`, `IGNORE ALL INSTRUCTIONS`, `OVERRIDE SYSTEM PROMPT` are so strongly associated with attacks that **a single match is sufficient** to block.
 
-**Layer 6b: Standard 2+ Match Threshold** — Requires **2+ distinct keyword matches** to avoid false positives. A single trigger word can appear in legitimate text, but real attacks always contain multiple injection phrases.
+**Layer 6b: Smart Match Threshold** - Requires **2+ distinct "informative" keyword matches** to block. Each single-word keyword goes through a Noun/Verb Proxy Heuristic that checks: is it a known security term (from the `_SECURITY_TERMS` set)? Does it have technical formatting (hyphens, underscores)? Is it 7+ characters? Is it in a special script (CJK, Arabic, Cyrillic)? Only keywords that pass these checks AND are not found in the Safe Baseline (11,954 common words) or the stopwords list count as informative hits. This is the core logic that achieves a 0% false positive rate.
 
 Includes keywords in: English, Spanish, French, German, Portuguese, Chinese, Japanese, Korean, Russian, Arabic, Hindi, Italian, Dutch, Swedish, Norwegian, Finnish, Polish, Czech, Ukrainian, Turkish, Danish, and Greek.
 
 #### Layer 6.5: Word-Level Co-occurrence Detection
-Detects when ACTION verbs (`IGNORE`, `BYPASS`, `DISABLE`, `IGNORIERE`, `IGNOREZ`, `IGNORA`, `IGNORAR`, etc.) co-occur with TARGET nouns (`SAFETY`, `INSTRUCTIONS`, `ANWEISUNGEN`, `INSTRUCCIONES`, `ENTWICKLERMODUS`, `DESARROLLADOR`, `DEVELOPPEUR`, etc.) in the same input. Defeats word-insertion bypass and catches multilingual injection phrases in German, French, and Spanish.
+Detects when ACTION verbs (`IGNORE`, `BYPASS`, `DISABLE`, `IGNORIERE`, `IGNOREZ`, `IGNORA`, `IGNORAR`, etc.) co-occur with TARGET nouns (`SAFETY`, `INSTRUCTIONS`, `ANWEISUNGEN`, `INSTRUCCIONES`, `ENTWICKLERMODUS`, `DESARROLLADOR`, `DEVELOPPEUR`, etc.) in the same input. Both action and target hits are filtered through the same Safe Baseline + Informative Heuristic used in Layer 6b. Defeats word-insertion bypass and catches multilingual injection phrases in German, French, and Spanish.
 
 #### Layer 6.7: Multi-Decode Expansion
 Runs 5 decoded variants of the input through the same keyword check:
@@ -653,9 +655,11 @@ Full dataset from the HackAPrompt competition, run through the deterministic lay
 
 ### 2.2.3
 
-- **Linguistic safety net expanded:** Added 30+ utility words (`SPELLING`, `GRAMMAR`, `EDIT`, `VERIFY`, `CORRECT`, `DESCRIBE`, `SUMMARIZE`, `TRANSLATE`, etc.) to the hardcoded `_STOPWORDS` in both `input_filter.py` and `adaptive.py`. These words are permanently exempt from keyword extraction and will never trigger co-occurrence blocks, eliminating false positives on common linguistic tasks.
+- **Safe Baseline shipped:** 11,954 common words across 15 languages loaded from `common_words.json`. Single-word keyword hits found in this baseline are automatically exempt from triggering blocks.
+- **Noun/Verb Proxy Heuristic:** Rewrote Layer 6b keyword matching logic. Single-word signals now go through an informative-or-not decision gate based on security term membership, technical format, length, and script type. Only keywords that pass AND are not in the Safe Baseline or stopwords count as hits.
+- **Linguistic stopwords expanded:** Added 30+ utility words (`SPELLING`, `GRAMMAR`, `EDIT`, `VERIFY`, `CORRECT`, `DESCRIBE`, `SUMMARIZE`, `TRANSLATE`, etc.) to the hardcoded stopword safety net.
 - **Benchmark FP rate: 0%.** Validated against 78K benign prompts (ShareGPT + Alpaca + OpenAssistant) with zero false positives.
-- **Parity enforced:** `_STOPWORDS` and `_SECURITY_TERMS` definitions are now identical across the core library and the SaaS API layer.
+- **Pre-trained rules removed:** `trained_rules.json` is no longer shipped. AdaptiveShield starts clean and learns from reported attacks.
 
 ### 2.2.2
 
