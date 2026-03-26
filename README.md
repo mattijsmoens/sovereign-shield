@@ -654,6 +654,17 @@ Full dataset from the HackAPrompt competition, run through the deterministic lay
 | **Benign FP Rate** | 0.4% |
 | **Speed** | 98 prompts/sec |
 
+## Changelog
+
+### 2.2.2
+
+- **Stop word filtering overhaul:** Expanded `_STOPWORDS` from ~80 to 200+ words (greetings, common verbs, everyday nouns, generic tech words). Prevents common English words from being stored as attack keywords during training.
+- **Keyword extraction hardened:** Minimum keyword length raised from 3 to 4 characters. Short generic words no longer pollute the trained keyword database.
+- **Category matching threshold:** Raised from 2 to 3 required matches. Reduces false positives on benign inputs that coincidentally contain trained keywords.
+- **System prompt exfiltration detection:** Added high-confidence patterns for `SHOW YOUR SYSTEM PROMPT`, `PRINT YOUR INSTRUCTIONS`, `REVEAL YOUR RULES`, and related extraction attempts.
+- **Sensitive file path detection:** Added patterns for `/etc/passwd`, `/.env`, `/id_rsa`, `/shadow`, and other sensitive file paths to `DEFAULT_BAD_SIGNALS`.
+- **Response PII/credential scanner (API):** Deterministic regex-based scanner added to the veto endpoint. Detects Stripe, AWS, GitHub, GitLab, and Slack keys, SSH keys, private key blocks, database connection strings, credential disclosures, and SSN patterns in LLM responses.
+
 ---
 
 ## Ecosystem

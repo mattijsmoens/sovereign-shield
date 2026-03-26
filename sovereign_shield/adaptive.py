@@ -56,8 +56,12 @@ ATTACK_CATEGORIES: Dict[str, List[str]] = {
     ],
 }
 
-# Common stopwords to filter out during keyword extraction
+# Comprehensive stopwords — never stored as attack keywords during training.
+# Includes: articles, prepositions, pronouns, conjunctions, common verbs,
+# greetings, everyday nouns, question words, and high-frequency words
+# that appear equally in benign and attack inputs.
 _STOPWORDS = {
+    # Articles, prepositions, conjunctions
     "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
     "have", "has", "had", "do", "does", "did", "will", "would", "could",
     "should", "may", "might", "can", "shall", "to", "of", "in", "for",
@@ -70,6 +74,50 @@ _STOPWORDS = {
     "any", "no", "just", "also", "very", "too", "please", "then",
     "now", "here", "there", "up", "out", "if", "than", "after",
     "before", "above", "below", "between", "under", "over",
+    # Greetings and polite words
+    "hello", "hi", "hey", "goodbye", "bye", "thanks", "thank",
+    "sorry", "welcome", "ok", "okay", "yes", "no", "yeah", "nope",
+    # Common verbs (too generic to be attack signals)
+    "get", "got", "give", "gave", "make", "made", "take", "took",
+    "come", "came", "go", "went", "gone", "see", "saw", "seen",
+    "know", "knew", "known", "think", "thought", "want", "need",
+    "like", "look", "looked", "find", "found", "tell", "told",
+    "ask", "asked", "try", "tried", "use", "used", "work", "worked",
+    "call", "called", "keep", "kept", "let", "help", "helped",
+    "start", "started", "show", "showed", "hear", "heard",
+    "play", "played", "move", "moved", "live", "lived",
+    "believe", "bring", "brought", "happen", "happened",
+    "write", "wrote", "written", "read", "provide", "provided",
+    "set", "put", "mean", "meant", "become", "became",
+    "leave", "left", "begin", "began", "seem", "seemed",
+    "follow", "followed", "create", "created", "speak", "spoke",
+    "allow", "allowed", "add", "added", "grow", "grew",
+    "open", "opened", "walk", "walked", "offer", "offered",
+    "remember", "consider", "appear", "appeared", "serve", "served",
+    "expect", "expected", "suggest", "suggested",
+    # Common everyday nouns
+    "world", "people", "time", "year", "day", "way", "man", "woman",
+    "child", "thing", "life", "hand", "part", "place", "case",
+    "week", "company", "group", "problem", "fact",
+    "good", "great", "new", "old", "big", "small", "long", "short",
+    "right", "left", "best", "last", "first", "next", "other",
+    "name", "word", "number", "line", "point", "home", "water",
+    "room", "area", "money", "story", "book", "answer", "question",
+    "side", "head", "house", "game", "example", "food",
+    # Tech words too generic to signal attacks
+    "code", "data", "file", "user", "test", "type", "text",
+    "list", "sort", "page", "link", "site", "web", "app",
+    "program", "function", "class", "method", "object", "value",
+    "result", "output", "input", "error", "message",
+    "save", "load", "send", "stop", "using", "like",
+    # More high-frequency benign words
+    "more", "most", "much", "many", "well", "back", "even",
+    "still", "own", "same", "different", "such", "only", "really",
+    "always", "never", "often", "sometimes", "already", "sure",
+    "able", "enough", "quite", "rather", "probably", "actually",
+    "sentence", "translate", "french", "english", "spanish",
+    "german", "language", "meaning", "define", "explain",
+    "today", "tomorrow", "yesterday", "morning", "night",
 }
 
 _SCHEMA = """
@@ -312,8 +360,8 @@ class AdaptiveShield:
             for category, learned_kws in self._category_keywords.items():
                 # Combine predefined + learned keywords for this category
                 all_kws = learned_kws | set(ATTACK_CATEGORIES.get(category, []))
-                matched = [kw for kw in all_kws if kw in text_lower]
-                if len(matched) >= 2:  # Require 2+ keyword matches to reduce FP
+                matched = [kw for kw in all_kws if kw in text_lower and len(kw) >= 4 and kw not in _STOPWORDS]
+                if len(matched) >= 3:  # Require 3+ keyword matches to reduce FP
                     is_safe = False
                     result = (f"Blocked by category '{category}': "
                               f"matched {matched[:3]}")
@@ -582,9 +630,9 @@ class AdaptiveShield:
 
             # Find all keywords that matched in this input
             all_kws = learned_kws | predefined
-            matched = [kw for kw in all_kws if kw in text_lower]
+            matched = [kw for kw in all_kws if kw in text_lower and len(kw) >= 4 and kw not in _STOPWORDS]
 
-            if len(matched) >= 2:
+            if len(matched) >= 3:
                 # This is the category that caused the block
                 pruned_category = category
 
@@ -746,7 +794,7 @@ class AdaptiveShield:
         for word in words:
             # Strip common punctuation
             clean = word.strip('.,!?;:\'"()[]{}/')
-            if (len(clean) >= 3
+            if (len(clean) >= 4
                     and clean not in _STOPWORDS
                     and clean not in seen):
                 keywords.append(clean)
