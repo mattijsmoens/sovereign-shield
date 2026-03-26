@@ -18,11 +18,39 @@ import uuid
 import sqlite3
 import threading
 import logging
+import json
 from typing import Optional, List, Set, Dict
 
 from .input_filter import InputFilter, DEFAULT_BAD_SIGNALS
 
 logger = logging.getLogger("adaptive_shield")
+
+# 1. Load the Safe Baseline (Common words in 15 languages)
+# These words are NEVER stored as attack keywords during training.
+_SAFE_BASELINE: Set[str] = set()
+_baseline_path = os.path.join(os.path.dirname(__file__), "data", "common_words.json")
+if os.path.exists(_baseline_path):
+    try:
+        with open(_baseline_path, 'r', encoding='utf-8') as f:
+            _SAFE_BASELINE = set(json.load(f))
+    except Exception as e:
+        logger.error(f"Failed to load Safe Baseline: {e}")
+
+# Unified Security Terms — keywords that are ALWAYS informative
+_SECURITY_TERMS = {
+    "bypass", "ignore", "reset", "system", "admin", "privileged",
+    "access", "disable", "override", "instruction", "instructions",
+    "prompt", "developer", "payload", "execute", "shell", "root",
+    "sensitive", "hidden", "internal", "config", "debug", "token",
+    "jailbreak", "pwned", "unfilter", "unrestricted", "security",
+    "database", "drop", "delete", "format", "shutdown", "reboot",
+    # Danger Action/Target expansion (Consistency with InputFilter)
+    "safety", "rules", "file", "cat", "rm", "rf", "nuke", "lift",
+    "skip", "show", "leak", "dump", "wipe", "revoke", "purge",
+    "erase", "lift", "strip", "shred", "flush", "zero", "cat",
+    "type", "show", "print", "read", "reveal", "output", "display",
+    "limits", "chains", "filters", "bounds", "policies", "measures",
+}
 
 # Predefined attack category keyword clusters
 ATTACK_CATEGORIES: Dict[str, List[str]] = {
@@ -114,10 +142,19 @@ _STOPWORDS = {
     "more", "most", "much", "many", "well", "back", "even",
     "still", "own", "same", "different", "such", "only", "really",
     "always", "never", "often", "sometimes", "already", "sure",
-    "able", "enough", "quite", "rather", "probably", "actually",
-    "sentence", "translate", "french", "english", "spanish",
+    "must", "should", "ought", "might", "may", "can", "could",
+    "absolutely", "entirely", "completely", "fully", "totally", "partially", "slightly",
+    "sentence", "sentences", "translate", "french", "english", "spanish",
     "german", "language", "meaning", "define", "explain",
+    "character", "characters", "letter", "letters", "word", "words",
     "today", "tomorrow", "yesterday", "morning", "night",
+    "many", "most", "several", "much", "very", "too", "enough",
+    "everything", "something", "anything", "nothing", "around",
+    "specifically", "basically", "clearly", "possibly", "usually",
+    "often", "always", "sometimes", "already", "sure",
+    "edit", "reveal", "describe", "explain", "summarize", "spelling", "grammar",
+    "mistake", "mistakes", "check", "checks", "verify", "correct", "improve",
+    "improvement", "text", "write", "provide", "setting", "settings",
 }
 
 _SCHEMA = """
@@ -348,7 +385,21 @@ class AdaptiveShield:
         # Layer 2a: Custom adaptive rules (require 2+ matches to reduce FP)
         if is_safe and self._custom_rules:
             text_lower = text.lower()
-            matched_rules = [rule for rule in self._custom_rules if rule in text_lower]
+            matched_rules = []
+            for rule in self._custom_rules:
+                if rule in text_lower:
+                    # Phrase Immunity: Phrases are always high-integrity
+                    if ' ' in rule:
+                        matched_rules.append(rule)
+                    # Heuristic for single-word custom rules
+                    is_sec = rule in _SECURITY_TERMS
+                    is_long = len(rule) >= 7
+                    is_special = any(ord(c) > 0x024F for c in rule)
+                    is_safe = rule.lower() in _SAFE_BASELINE
+                    
+                    if (is_sec or is_long or is_special) and not is_safe:
+                        matched_rules.append(rule)
+
             if len(matched_rules) >= 2:
                 is_safe = False
                 result = f"Blocked by adaptive rules: matched {matched_rules[:3]}"
@@ -360,7 +411,26 @@ class AdaptiveShield:
             for category, learned_kws in self._category_keywords.items():
                 # Combine predefined + learned keywords for this category
                 all_kws = learned_kws | set(ATTACK_CATEGORIES.get(category, []))
-                matched = [kw for kw in all_kws if kw in text_lower and len(kw) >= 4 and kw not in _STOPWORDS]
+                # Apply Informative Heuristic to all category matching (predefined + learned)
+                matched = []
+                for kw in all_kws:
+                    if kw in text_lower:
+                        # Phrase Immunity: Phrases are always high-integrity
+                        if ' ' in kw:
+                            matched.append(kw)
+                            continue
+                        
+                        # Apply Informative Heuristic to single-word signals
+                        # Skip if in baseline OR if it's an uninformative generic word
+                        is_sec = kw in _SECURITY_TERMS
+                        is_tech = '-' in kw or '_' in kw or not kw.isalnum()
+                        is_long = len(kw) >= 7
+                        is_special = any(ord(c) > 0x024F for c in kw)
+                        is_safe = kw.lower() in _SAFE_BASELINE or kw.lower() in _STOPWORDS
+                        
+                        if (is_sec or is_tech or is_long or is_special) and not is_safe:
+                            matched.append(kw)
+
                 if len(matched) >= 3:  # Require 3+ keyword matches to reduce FP
                     is_safe = False
                     result = (f"Blocked by category '{category}': "
@@ -628,9 +698,22 @@ class AdaptiveShield:
             # Get predefined keywords for this category (these are NEVER removed)
             predefined = set(ATTACK_CATEGORIES.get(category, []))
 
-            # Find all keywords that matched in this input
+            # Find all keywords that matched in this input using Informative Heuristic
             all_kws = learned_kws | predefined
-            matched = [kw for kw in all_kws if kw in text_lower and len(kw) >= 4 and kw not in _STOPWORDS]
+            matched = []
+            for kw in all_kws:
+                if kw in text_lower:
+                    if ' ' in kw:
+                        matched.append(kw)
+                        continue
+                    is_sec = kw in _SECURITY_TERMS
+                    is_tech = '-' in kw or '_' in kw or not kw.isalnum()
+                    is_long = len(kw) >= 7
+                    is_special = any(ord(c) > 0x024F for c in kw)
+                    is_safe = kw.lower() in _SAFE_BASELINE or kw.lower() in _STOPWORDS
+                    
+                    if (is_sec or is_tech or is_long or is_special) and not is_safe:
+                        matched.append(kw)
 
             if len(matched) >= 3:
                 # This is the category that caused the block
@@ -783,23 +866,34 @@ class AdaptiveShield:
     @staticmethod
     def _extract_keywords(text: str) -> List[str]:
         """
-        Extract meaningful keywords from attack text.
-
-        Filters stopwords and short words, returns unique keywords
-        that could be used for category-based matching.
+        Robustly extracts the most informative security-relevant keywords.
+        Focuses on instructions (verbs) and targets (nouns).
         """
         words = text.lower().split()
-        keywords = []
+        candidates = []
         seen = set()
+        
         for word in words:
-            # Strip common punctuation
+            # Clean punctuation (excluding dashes/underscores for tech terms)
             clean = word.strip('.,!?;:\'"()[]{}/')
-            if (len(clean) >= 4
-                    and clean not in _STOPWORDS
-                    and clean not in seen):
-                keywords.append(clean)
+            
+            # Apply Informative Heuristic (using module-level _SECURITY_TERMS and _SAFE_BASELINE)
+            is_sec = clean in _SECURITY_TERMS
+            is_tech = '-' in clean or '_' in clean or not clean.isalnum()
+            is_long = len(clean) >= 7
+            is_special = any(ord(c) > 0x024F for c in clean)
+            is_safe = clean in _STOPWORDS or clean in _SAFE_BASELINE or clean in seen
+            
+            if (is_sec or is_tech or is_long or is_special) and not is_safe:
+                candidates.append(clean)
                 seen.add(clean)
-        return keywords
+        
+        if not candidates:
+            return []
+            
+        # Rank: Security terms > Length
+        candidates.sort(key=lambda x: (x in _SECURITY_TERMS, len(x)), reverse=True)
+        return candidates[:5]
 
     @staticmethod
     def _classify_attack(keywords: List[str]) -> tuple:

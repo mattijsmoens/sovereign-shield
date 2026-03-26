@@ -15,8 +15,58 @@ import codecs
 import logging
 import re
 import unicodedata
+import os
+import json
+from typing import Set
 
 logger = logging.getLogger(__name__)
+
+# Load the Safe Baseline (Common words in 15 languages)
+_SAFE_BASELINE = set()
+_baseline_path = os.path.join(os.path.dirname(__file__), "data", "common_words.json")
+if os.path.exists(_baseline_path):
+    try:
+        with open(_baseline_path, 'r', encoding='utf-8') as f:
+            _SAFE_BASELINE = set(json.load(f))
+    except Exception as e:
+        logger.error(f"Failed to load Safe Baseline in InputFilter: {e}")
+
+# Unified Security Terms — keywords that are ALWAYS informative
+_SECURITY_TERMS = {
+    "BYPASS", "IGNORE", "RESET", "SYSTEM", "ADMIN", "PRIVILEGED",
+    "ACCESS", "DISABLE", "OVERRIDE", "INSTRUCTION", "INSTRUCTIONS",
+    "PROMPT", "DEVELOPER", "PAYLOAD", "EXECUTE", "SHELL", "ROOT",
+    "SENSITIVE", "HIDDEN", "INTERNAL", "CONFIG", "DEBUG", "TOKEN",
+    "JAILBREAK", "PWNED", "UNFILTER", "UNRESTRICTED", "SECURITY",
+    "DATABASE", "DROP", "DELETE", "FORMAT", "SHUTDOWN", "REBOOT",
+    # Danger Action/Target expansion (to fix the 4-6 letter filtering bug)
+    "SAFETY", "RULES", "FILE", "CAT", "RM", "RF", "NUKE", "LIFT",
+    "SKIP", "SHOW", "LEAK", "DUMP", "WIPE", "REVOKE", "PURGE",
+    "ERASE", "LIFT", "STRIP", "SHRED", "FLUSH", "ZERO", "CAT",
+    "TYPE", "SHOW", "PRINT", "READ", "REVEAL", "OUTPUT", "DISPLAY",
+    "LIMITS", "CHAINS", "FILTERS", "BOUNDS", "POLICIES", "MEASURES",
+}
+
+# Comprehensive stopwords safety net (Parity with AdaptiveShield)
+_STOPWORDS = {
+    "THE", "A", "AN", "IS", "ARE", "WAS", "WERE", "BE", "BEEN", "BEING",
+    "HAVE", "HAS", "HAD", "DO", "DOES", "DID", "WILL", "WOULD", "COULD",
+    "SHOULD", "MAY", "MIGHT", "CAN", "SHALL", "TO", "OF", "IN", "FOR",
+    "ON", "WITH", "AT", "BY", "FROM", "AS", "INTO", "THROUGH", "ABOUT",
+    "AND", "BUT", "OR", "NOR", "NOT", "SO", "YET", "BOTH", "EITHER",
+    "NEITHER", "THIS", "THAT", "THESE", "THOSE", "IT", "ITS", "MY",
+    "YOUR", "HIS", "HER", "OUR", "THEIR", "ME", "HIM", "US", "THEM",
+    "I", "YOU", "HE", "SHE", "WE", "THEY", "WHAT", "WHICH", "WHO",
+    "HOW", "WHEN", "WHERE", "WHY", "ALL", "EACH", "EVERY", "SOME",
+    "ANY", "NO", "JUST", "ALSO", "VERY", "TOO", "PLEASE", "THEN",
+    "NOW", "HERE", "THERE", "UP", "OUT", "IF", "THAN", "AFTER",
+    "BEFORE", "ABOVE", "BELOW", "BETWEEN", "UNDER", "OVER",
+    # Utility/Linguistic Stopwords (False-Positive Hardening)
+    "EDIT", "MISTAKE", "MISTAKES", "SPELLING", "GRAMMAR", "CHECK", "CHECKS",
+    "VERIFY", "CORRECT", "IMPROVE", "IMPROVEMENT", "TEXT", "WRITE", "DESCRIBE",
+    "EXPLAIN", "SUMMARIZE", "TRANSLATE", "TRANSLATION", "LANGUAGE", "WORD",
+    "WORDS", "SENTENCE", "PARAGRAPH", "STORY", "BOOK", "FILE", "DATA",
+}
 
 # ===================================================================
 # PRE-COMPILED DETECTION PATTERNS
@@ -145,30 +195,36 @@ MULTILINGUAL_BAD_SIGNALS = [
     "开发者模式", "忽略规则", "忽略所有", "越狱",
     "删除所有限制", "自由回答", "关闭过滤器", "安全关闭",
     "关闭安全", "管理员权限", "禁用过滤",
+    "忽略", "指令", "规则", "系统", "管理", "提示", "访问", "权限",
     # Japanese
     "指示を無視", "以前の指示を無視", "システムプロンプト", "管理者アクセス",
     "データベースを削除", "開発者モード", "ルールを無視", "すべてを無視",
     "制限をすべて削除", "自由に応答", "フィルターを無効",
     "安全フィルターを無効", "管理者権限",
+    "無視", "指示", "管理", "権限", "システム", "プロンプト", "ルール",
     # Korean
     "지시를 무시", "이전 지시를 무시", "시스템 프롬프트", "관리자 접근",
     "데이터베이스 삭제", "개발자 모드", "규칙 무시", "모두 무시",
     "모든 제한을 제거", "자유롭게 답변", "필터를 끄세요",
     "관리자 권한", "필터 해제",
+    "무시", "지시", "관리", "권한", "시스템", "프롬프트", "규칙",
     # Russian
     "ИГНОРИРОВАТЬ ИНСТРУКЦИИ", "ИГНОРИРОВАТЬ ПРЕДЫДУЩИЕ", "СИСТЕМНЫЙ ПРОМПТ",
     "ДОСТУП АДМИНИСТРАТОРА", "УДАЛИТЬ БАЗУ ДАННЫХ", "РЕЖИМ РАЗРАБОТЧИКА",
     "ИГНОРИРОВАТЬ ПРАВИЛА", "ИГНОРИРОВАТЬ ВСЕ",
     "СНИМИТЕ ВСЕ ОГРАНИЧЕНИЯ", "ОТВЕЧАЙТЕ СВОБОДНО",
     "ОТКЛЮЧИ ФИЛЬТР", "ОТКЛЮЧИТЬ БЕЗОПАСНОСТЬ",
+    "ИГНОРИРОВАТЬ", "ИНСТРУКЦИИ", "ПРАВИЛА", "АДМИН", "СИСТЕМА",
     # Arabic
     "تجاهل التعليمات", "تجاهل السابقة", "موجه النظام", "وصول المسؤول",
     "حذف قاعدة البيانات", "وضع المطور", "تجاهل القواعد", "تجاهل الكل",
     "أزل جميع القيود", "أجب بحرية", "تعطيل الفلتر",
+    "تجاهل", "تعليمات", "قواعد", "نظام", "مسؤول",
     # Hindi
     "निर्देशों को अनदेखा करें", "पिछले निर्देशों को अनदेखा करें",
     "सिस्टम प्रॉम्प्ट", "एडमिन एक्सेस", "डेटाबेस हटाएं",
     "डेवलपर मोड", "नियमों को अनदेखा करें", "सब अनदेखा करें",
+    "अनदेखा", "निर्देशों", "नियमों", "सिस्टम", "प्रॉम्प्ट",
     # Italian
     "IGNORA TUTTE LE ISTRUZIONI", "RIMUOVI TUTTE LE RESTRIZIONI",
     "RISPONDI LIBERAMENTE", "DISATTIVA FILTRO", "SICUREZZA DISATTIVATA",
@@ -339,13 +395,35 @@ class InputFilter:
         ]
         for hc in _HIGH_CONFIDENCE:
             if hc in upper_text:
+                # Apply Safe Baseline to single-word high-confidence keywords
+                if ' ' not in hc and hc.lower() in _SAFE_BASELINE:
+                    continue
                 logger.warning(f"[InputFilter] Blocked high-confidence injection keyword: {text[:50]}...")
                 return False, "Prompt injection detected (high-confidence keyword)."
 
-        # Layer 6b: Require 2+ distinct bad-signal matches to block.
-        # A single trigger word can appear in legitimate text (e.g. "override CSS"),
-        # but real attacks always contain multiple injection phrases.
-        hit_count = sum(1 for bad in self.bad_signals if bad in upper_text)
+        # Layer 6b: Require 2+ distinct "Informative" bad-signal matches.
+        hit_count = 0
+        for bad in self.bad_signals:
+            if bad in upper_text:
+                # Phrases are always high-integrity
+                if ' ' in bad:
+                    hit_count += 1
+                    continue
+                
+                # Apply NOUN/VERB PROXY HEURISTIC to single-word signals
+                # Skip if in baseline OR if it's an uninformative generic word
+                is_sec = bad in _SECURITY_TERMS
+                is_tech = '-' in bad or '_' in bad or not bad.isalnum()
+                is_long = len(bad) >= 7
+                # Special Script (Asian, Arabic, Hindi, Cyrillic) Bypass:
+                # 2-3 chars in these scripts can be a full word. 
+                is_special = any(ord(c) > 0x024F for c in bad)
+                is_base = bad.lower() in _SAFE_BASELINE or bad in _STOPWORDS
+                
+                # Rule: Key if (Sec OR Tech OR Long OR Special) AND NOT in baseline/stopwords
+                if (is_sec or is_tech or is_long or is_special) and not is_base:
+                    hit_count += 1
+
         if hit_count >= 2:
             logger.warning(f"[InputFilter] Blocked prompt injection keyword: {text[:50]}...")
             return False, "Prompt injection detected."
@@ -356,8 +434,17 @@ class InputFilter:
         words_in_text = set(upper_text.split())
         # Strip punctuation from words for matching
         words_clean = {w.strip('.,;:!?\'"()[]{}') for w in words_in_text}
-        action_hits = words_clean & _DANGER_ACTIONS
-        target_hits = words_clean & _DANGER_TARGETS
+        # Filter action/target hits against the Safe Baseline + Informative Heuristic
+        action_hits = {
+            h for h in (words_clean & _DANGER_ACTIONS) 
+            if (h in _SECURITY_TERMS or len(h) >= 7 or any(ord(c) > 0x024F for c in h)) 
+               and h.lower() not in _SAFE_BASELINE and h not in _STOPWORDS
+        }
+        target_hits = {
+            h for h in (words_clean & _DANGER_TARGETS) 
+            if (h in _SECURITY_TERMS or len(h) >= 7 or any(ord(c) > 0x024F for c in h)) 
+               and h.lower() not in _SAFE_BASELINE and h not in _STOPWORDS
+        }
         if action_hits and target_hits:
             logger.warning(f"[InputFilter] Blocked co-occurrence: actions={action_hits} targets={target_hits} in: {text[:50]}...")
             return False, "Prompt injection detected (action+target co-occurrence)."
@@ -367,13 +454,40 @@ class InputFilter:
         # Catches ROT13, reversed, leet speak, whitespace-smuggled, and pig latin.
         for variant in self._multi_decode(text):
             variant_upper = variant.upper()
-            variant_hits = sum(1 for bad in self.bad_signals if bad in variant_upper)
+            # Apply Informative Heuristic to variant hits (Consistency fix)
+            variant_hits = 0
+            for bad in self.bad_signals:
+                if bad in variant_upper:
+                    if ' ' in bad:
+                        variant_hits += 1
+                        continue
+                    
+                    is_sec = bad in _SECURITY_TERMS
+                    is_tech = '-' in bad or '_' in bad or not bad.isalnum()
+                    is_long = len(bad) >= 7
+                    is_special = any(ord(c) > 0x024F for c in bad)
+                    is_base = bad.lower() in _SAFE_BASELINE or bad in _STOPWORDS
+                    
+                    if (is_sec or is_tech or is_long or is_special) and not is_base:
+                        variant_hits += 1
+
             if variant_hits >= 2:
                 logger.warning(f"[InputFilter] Blocked encoded injection (multi-decode): {text[:50]}...")
                 return False, "Encoded prompt injection detected (multi-decode)."
-            # Also check co-occurrence on decoded variants
+            
+            # Also check co-occurrence on decoded variants with Safe Baseline + Heuristic
             vwords = {w.strip('.,;:!?\'"()[]{}') for w in variant_upper.split()}
-            if (vwords & _DANGER_ACTIONS) and (vwords & _DANGER_TARGETS):
+            vactions = {
+                a for a in (vwords & _DANGER_ACTIONS) 
+                if (a in _SECURITY_TERMS or len(a) >= 7 or any(ord(c) > 0x024F for c in a)) 
+                   and a.lower() not in _SAFE_BASELINE and a not in _STOPWORDS
+            }
+            vtargets = {
+                t for t in (vwords & _DANGER_TARGETS) 
+                if (t in _SECURITY_TERMS or len(t) >= 7 or any(ord(c) > 0x024F for c in t)) 
+                   and t.lower() not in _SAFE_BASELINE and t not in _STOPWORDS
+            }
+            if vactions and vtargets:
                 logger.warning(f"[InputFilter] Blocked encoded co-occurrence (multi-decode): {text[:50]}...")
                 return False, "Encoded prompt injection detected (multi-decode co-occurrence)."
 

@@ -43,4 +43,4 @@ __all__ = [
     "MultiModalFilter",
     "TruthGuard",
 ]
-__version__ = "2.2.2"
+__version__ = "2.2.3"

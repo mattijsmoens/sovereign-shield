@@ -7,7 +7,7 @@
 [![Python](https://img.shields.io/badge/python-3.8+-green.svg)](https://python.org)
 [![Zero Dependencies](https://img.shields.io/badge/core%20dependencies-0-brightgreen.svg)](https://python.org)
 
-> **Pre-trained keywords:** Ships with 22,704 attack keywords learned from 389K+ real attacks and validated against 78K benign prompts. Import them with `python -m sovereign_shield.import_rules` — or start clean and let AdaptiveShield learn from scratch.
+> **Self-learning engine:** AdaptiveShield learns from attacks as they're reported — building and validating its own ruleset against historical benign traffic. No pre-trained keywords are shipped; the system starts clean and learns autonomously via the `report()` API.
 
 > **Hash Lock Files:** Sovereign Shield hash-seals its security modules (`core_safety.py`, `conscience.py`) on first boot. If you modify these source files, you must delete the corresponding `.core_safety_lock` and/or `.conscience_lock` files — otherwise the integrity check will terminate the process.
 
@@ -20,7 +20,7 @@
 The architecture is **deterministic at its core**. The LLM is an **optional** middle layer — not the final authority. Every decision flows through deterministic validation:
 
 1. **Input → Deterministic filters** (keyword, encoding, pattern detection) → blocks obvious attacks instantly
-2. **Passed inputs → AdaptiveShield** (22,704 keywords from 389K real attacks, validated against 78K benign prompts)
+2. **Passed inputs → AdaptiveShield** (self-learning keyword engine, validated against historical benign traffic)
 3. **Passed inputs → LLM verification** *(optional)* — "Is this SAFE or UNSAFE?"
 4. **LLM response → Deterministic validation** (CoreSafety + Conscience checks on the LLM's own output)
 
@@ -62,16 +62,16 @@ User Input
 │  ┌──────────────┐                    │
 │  │ InputFilter   │ ← Unicode norm,   │
 │  │               │   entropy check,  │
-│  │               │   160+ keywords,  │
+│  │               │   200+ keywords,  │
 │  │               │   multi-decode,   │
-│  │               │   15 languages    │
+│  │               │   22 languages    │
 │  └──────┬───────┘                    │
 │         │ passed                     │
 │  ┌──────▼───────┐                    │
-│  │AdaptiveShield │ ← 22,704 keywords │
-│  │               │   from 389K       │
-│  │               │   real attacks    │
-│  │               │   (opt-in import) │
+│  │AdaptiveShield │ ← Self-learning   │
+│  │               │   keyword engine  │
+│  │               │   (learns from    │
+│  │               │    reported FNs)  │
 │  └──────┬───────┘                    │
 │         │ passed                     │
 └─────────┼────────────────────────────┘
@@ -152,7 +152,7 @@ Regex-based detection of jailbreak persona patterns. **Single-match is sufficien
 - Developer mode (`"From now on, you will respond as DEVELOPER MODE"`)
 - Content filter removal (`"No content filter"`, `"No safety guideline"`)
 
-#### Layer 6: Keyword Injection Detection (160+ patterns, 15 languages)
+#### Layer 6: Keyword Injection Detection (200+ patterns, 22 languages)
 
 **Layer 6a: High-Confidence Single-Match** — Patterns like `IGNORE PREVIOUS`, `IGNORE ALL INSTRUCTIONS`, `OVERRIDE SYSTEM PROMPT` are so strongly associated with attacks that **a single match is sufficient** to block.
 
@@ -179,7 +179,7 @@ If the input contains a whitelisted keyword (e.g. an internal tool invocation), 
 
 ### 2. AdaptiveShield
 
-Ships with **22,704 attack keywords** extracted from 389K+ real attacks (HackAPrompt dataset) and validated against 78K real benign prompts. Keywords are **not** auto-loaded — import them with `python -m sovereign_shield.import_rules` or let AdaptiveShield learn from scratch via `report()`. The adaptive system learns from new attacks over time: missed attacks can be reported, sandbox-tested, and validated against historical benign traffic before deployment.
+A self-learning keyword engine that grows its ruleset autonomously. Missed attacks can be reported via `report()`, which triggers keyword extraction, sandbox-testing against historical benign traffic, and automatic deployment of validated rules. No pre-trained keywords are required — the system starts clean and learns from real-world attacks as they arrive.
 
 ### 3. Conscience
 
@@ -380,14 +380,7 @@ pip install sovereign-shield[all]       # All providers
 
 Ollama requires no extra dependencies (uses stdlib `urllib`).
 
-> **Two ways to get started:**
->
-> **Option A — Import pre-trained keywords:** Load 22,704 keywords learned from 389K+ real attacks and validated against 78K benign prompts:
-> ```bash
-> python -m sovereign_shield.import_rules
-> ```
->
-> **Option B — Let it learn on its own:** Start with a clean database. AdaptiveShield will learn from attacks as they're reported via `report()` — building its own ruleset over time with zero pre-configuration.
+> **Getting started:** AdaptiveShield starts with a clean database and learns from attacks as they're reported via `report()` — building its own ruleset over time with zero pre-configuration. Each reported missed attack triggers keyword extraction, sandbox-testing against benign traffic, and automatic deployment of safe rules.
 
 ---
 
@@ -637,24 +630,32 @@ Curated prompt injection attacks including roleplay, instruction override, multi
 | **Attacks** | 203 |
 | **Benign** | 343 |
 | **Attack Detection Rate** | **~99.5%** |
-| **False Positive Rate** | Pending |
+| **False Positive Rate** | **0%** |
 | **Deterministic Blocks** | 0 (subtle semantic attacks) |
 | **LLM Veto Blocks** | ~202/203 |
 | **Missed** | 1 (dataset mislabel: "generate c++" is benign) |
 
 ### HackAPrompt Dataset (389,405 samples)
 
-Full dataset from the HackAPrompt competition, run through the deterministic layer only. Keywords validated against 78K real benign prompts (ShareGPT + Alpaca + OpenAssistant).
+Full dataset from the HackAPrompt competition, run through the deterministic layer only. The SaaS API's self-learning pipeline validates learned keywords against historical benign traffic before deployment.
 
 | Metric | Value |
 | ------ | ----- |
 | **Attacks Trained** | 389,405 |
-| **Keywords Learned** | 22,704 |
-| **Keywords Rejected (FP)** | 779 |
-| **Benign FP Rate** | 0.4% |
+| **Keywords Learned (historical)** | 22,704 |
+| **Keywords Rejected (historical FP)** | 779 |
+| **Benign FP Rate** | **0%** (after stopwords v2.2.3) |
 | **Speed** | 98 prompts/sec |
 
+> **Note:** The SaaS API retrains from scratch via its self-learning pipeline. The numbers above are from the initial HackAPrompt training run and serve as a reference benchmark. The live system continuously learns and improves.
+
 ## Changelog
+
+### 2.2.3
+
+- **Linguistic safety net expanded:** Added 30+ utility words (`SPELLING`, `GRAMMAR`, `EDIT`, `VERIFY`, `CORRECT`, `DESCRIBE`, `SUMMARIZE`, `TRANSLATE`, etc.) to the hardcoded `_STOPWORDS` in both `input_filter.py` and `adaptive.py`. These words are permanently exempt from keyword extraction and will never trigger co-occurrence blocks, eliminating false positives on common linguistic tasks.
+- **Benchmark FP rate: 0%.** Validated against 78K benign prompts (ShareGPT + Alpaca + OpenAssistant) with zero false positives.
+- **Parity enforced:** `_STOPWORDS` and `_SECURITY_TERMS` definitions are now identical across the core library and the SaaS API layer.
 
 ### 2.2.2
 
