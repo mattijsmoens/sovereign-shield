@@ -653,6 +653,12 @@ Full dataset from the HackAPrompt competition, run through the deterministic lay
 
 ## Changelog
 
+### 2.3.0 (Local JSON API Microservice)
+
+- **SovereignShield Local Daemon (`ss_daemon.py`):** Added a lightweight, zero-dependency HTTP server that exposes SovereignShield's deterministic and semantic filtering engines via a local JSON API (`127.0.0.1:8765 /scan`). This transforms SovereignShield from a Python library into a universal microservice that applications written in **any programming language** (JavaScript, Java, Go, Rust, C#, PHP) can instantly utilize.
+- **Native AI Agent Integration:** Released the official `openclaw-sovereign-shield` native Node.js plugin for OpenClaw, enabling 0-day RCE blocking directly inside the world's most popular autonomous agent framework. The plugin operates completely standalone (SaaS Mode) or communicates natively with the new `ss_daemon.py` (Local Mode).
+- **VetoShield LLM Semantic Layer:** Integrated fully into the Local Daemon. Automatically intercepts prompt injections via deterministic layers and promotes subtle semantic attacks to the LLM backend (Gemini/OpenAI/Ollama) for intelligent extraction.
+
 ### 2.2.3
 
 - **Safe Baseline shipped:** 11,954 common words across 15 languages loaded from `common_words.json`. Single-word keyword hits found in this baseline are automatically exempt from triggering blocks.
@@ -678,6 +684,7 @@ Full dataset from the HackAPrompt competition, run through the deterministic lay
 | ------- | ------- | ----------- |
 | **sovereign-shield** | `pip install sovereign-shield` | Full defense: deterministic + LLM veto + adaptive learning + HITL + file validation + hallucination detection |
 | **sovereign-shield-adaptive** | `pip install sovereign-shield-adaptive` | Standalone adaptive engine for self-improving rule learning |
+| **openclaw-sovereign-shield** | `openclaw plugins install openclaw-sovereign-shield` | Native plugin intercepting high-risk OS actions in the OpenClaw Agent framework. |
 
 ---
 

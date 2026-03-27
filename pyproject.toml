@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sovereign-shield"
-version = "2.2.3"
+version = "2.3.1"
 description = "Production-grade AI defense — deterministic filters + optional LLM veto + HITL approval + file validation + hallucination detection."
 readme = "README.md"
 license = {file = "LICENSE"}

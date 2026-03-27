@@ -21,7 +21,7 @@ import logging
 import json
 from typing import Optional, List, Set, Dict
 
-from .input_filter import InputFilter, DEFAULT_BAD_SIGNALS
+from .input_filter import InputFilter, DEFAULT_BAD_SIGNALS, _SECURITY_TERMS as _INPUT_SECURITY_TERMS
 
 logger = logging.getLogger("adaptive_shield")
 
@@ -36,21 +36,9 @@ if os.path.exists(_baseline_path):
     except Exception as e:
         logger.error(f"Failed to load Safe Baseline: {e}")
 
-# Unified Security Terms — keywords that are ALWAYS informative
-_SECURITY_TERMS = {
-    "bypass", "ignore", "reset", "system", "admin", "privileged",
-    "access", "disable", "override", "instruction", "instructions",
-    "prompt", "developer", "payload", "execute", "shell", "root",
-    "sensitive", "hidden", "internal", "config", "debug", "token",
-    "jailbreak", "pwned", "unfilter", "unrestricted", "security",
-    "database", "drop", "delete", "format", "shutdown", "reboot",
-    # Danger Action/Target expansion (Consistency with InputFilter)
-    "safety", "rules", "file", "cat", "rm", "rf", "nuke", "lift",
-    "skip", "show", "leak", "dump", "wipe", "revoke", "purge",
-    "erase", "lift", "strip", "shred", "flush", "zero", "cat",
-    "type", "show", "print", "read", "reveal", "output", "display",
-    "limits", "chains", "filters", "bounds", "policies", "measures",
-}
+# _SECURITY_TERMS is imported from input_filter and extended with
+# ATTACK_CATEGORIES keywords below (after ATTACK_CATEGORIES is defined).
+# This ensures a single source of truth — no manual duplication.
 
 # Predefined attack category keyword clusters
 ATTACK_CATEGORIES: Dict[str, List[str]] = {
@@ -82,6 +70,12 @@ ATTACK_CATEGORIES: Dict[str, List[str]] = {
         "delete", "drop", "truncate", "destroy", "wipe", "erase",
         "format", "rm -rf", "purge", "remove all",
     ],
+}
+
+# Auto-compute _SECURITY_TERMS: imported from input_filter + all single-word
+# ATTACK_CATEGORIES keywords. Single source of truth, no manual duplication.
+_SECURITY_TERMS = {t.lower() for t in _INPUT_SECURITY_TERMS} | {
+    kw for kws in ATTACK_CATEGORIES.values() for kw in kws if ' ' not in kw
 }
 
 # Comprehensive stopwords — never stored as attack keywords during training.
@@ -376,13 +370,14 @@ class AdaptiveShield:
                     # Phrase Immunity: Phrases are always high-integrity
                     if ' ' in rule:
                         matched_rules.append(rule)
+                        continue
                     # Heuristic for single-word custom rules
                     is_sec = rule in _SECURITY_TERMS
                     is_long = len(rule) >= 7
                     is_special = any(ord(c) > 0x024F for c in rule)
-                    is_safe = rule.lower() in _SAFE_BASELINE
+                    is_base = rule.lower() in _SAFE_BASELINE
                     
-                    if (is_sec or is_long or is_special) and not is_safe:
+                    if is_sec or ((is_long or is_special) and not is_base):
                         matched_rules.append(rule)
 
             if len(matched_rules) >= 2:
@@ -391,11 +386,15 @@ class AdaptiveShield:
 
         # Layer 2b: Category keyword matching (v2 self-expanding minefield)
         # Merge predefined categories with learned keywords for full coverage
-        if is_safe and self._category_keywords:
+        # Always active — predefined ATTACK_CATEGORIES run even on a fresh install
+        if is_safe:
             text_lower = text.lower()
-            for category, learned_kws in self._category_keywords.items():
+            all_categories = set(ATTACK_CATEGORIES.keys()) | set(self._category_keywords.keys())
+            for category in all_categories:
                 # Combine predefined + learned keywords for this category
-                all_kws = learned_kws | set(ATTACK_CATEGORIES.get(category, []))
+                predefined = set(ATTACK_CATEGORIES.get(category, []))
+                learned = self._category_keywords.get(category, set())
+                all_kws = predefined | learned
                 # Apply Informative Heuristic to all category matching (predefined + learned)
                 matched = []
                 for kw in all_kws:
@@ -411,9 +410,9 @@ class AdaptiveShield:
                         is_tech = '-' in kw or '_' in kw or not kw.isalnum()
                         is_long = len(kw) >= 7
                         is_special = any(ord(c) > 0x024F for c in kw)
-                        is_safe = kw.lower() in _SAFE_BASELINE or kw.lower() in _STOPWORDS
+                        is_base = kw.lower() in _SAFE_BASELINE or kw.lower() in _STOPWORDS
                         
-                        if (is_sec or is_tech or is_long or is_special) and not is_safe:
+                        if is_sec or ((is_tech or is_long or is_special) and not is_base):
                             matched.append(kw)
 
                 if len(matched) >= 3:  # Require 3+ keyword matches to reduce FP
@@ -695,9 +694,9 @@ class AdaptiveShield:
                     is_tech = '-' in kw or '_' in kw or not kw.isalnum()
                     is_long = len(kw) >= 7
                     is_special = any(ord(c) > 0x024F for c in kw)
-                    is_safe = kw.lower() in _SAFE_BASELINE or kw.lower() in _STOPWORDS
+                    is_base = kw.lower() in _SAFE_BASELINE or kw.lower() in _STOPWORDS
                     
-                    if (is_sec or is_tech or is_long or is_special) and not is_safe:
+                    if is_sec or ((is_tech or is_long or is_special) and not is_base):
                         matched.append(kw)
 
             if len(matched) >= 3:
