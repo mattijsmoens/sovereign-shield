@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sovereign-shield"
-version = "2.3.1"
+version = "2.3.2"
 description = "Production-grade AI defense — deterministic filters + optional LLM veto + HITL approval + file validation + hallucination detection."
 readme = "README.md"
 license = {file = "LICENSE"}
@@ -49,6 +49,9 @@ all = ["google-genai>=1.0.0", "openai>=1.0.0"]
 Homepage = "https://github.com/mattijsmoens/sovereign-shield"
 Documentation = "https://github.com/mattijsmoens/sovereign-shield#readme"
 Issues = "https://github.com/mattijsmoens/sovereign-shield/issues"
+
+[project.scripts]
+sovereign-shield-daemon = "sovereign_shield.daemon:start_server"
 
 [tool.setuptools.packages.find]
 include = ["sovereign_shield*"]

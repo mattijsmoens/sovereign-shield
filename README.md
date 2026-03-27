@@ -653,6 +653,10 @@ Full dataset from the HackAPrompt competition, run through the deterministic lay
 
 ## Changelog
 
+### 2.3.2 (Daemon Included in Package)
+
+- **`sovereign-shield-daemon` CLI command:** The local HTTP daemon (`ss_daemon.py`) is now included in the pip package as `sovereign_shield.daemon`. After `pip install sovereign-shield`, run `sovereign-shield-daemon` to boot the local scanning server on `localhost:8765`. No git clone required.
+
 ### 2.3.0 (Local JSON API Microservice)
 
 - **SovereignShield Local Daemon (`ss_daemon.py`):** Added a lightweight, zero-dependency HTTP server that exposes SovereignShield's deterministic and semantic filtering engines via a local JSON API (`127.0.0.1:8765 /scan`). This transforms SovereignShield from a Python library into a universal microservice that applications written in **any programming language** (JavaScript, Java, Go, Rust, C#, PHP) can instantly utilize.
@@ -684,13 +688,13 @@ Full dataset from the HackAPrompt competition, run through the deterministic lay
 | ------- | ------- | ----------- |
 | **sovereign-shield** | `pip install sovereign-shield` | Full defense: deterministic + LLM veto + adaptive learning + HITL + file validation + hallucination detection |
 | **sovereign-shield-adaptive** | `pip install sovereign-shield-adaptive` | Standalone adaptive engine for self-improving rule learning |
-| **openclaw-sovereign-shield** | `openclaw plugins install openclaw-sovereign-shield` | Native plugin intercepting high-risk OS actions in the OpenClaw Agent framework. |
+| **openclaw-sovereign-shield** | `openclaw plugins install github.com/mattijsmoens/openclaw-sovereign-shield` | Native plugin intercepting high-risk OS actions in the OpenClaw Agent framework. |
 
 ---
 
 ## License
 
-[Business Source License 1.1](LICENSE) — Free for non-production use. Contact for commercial licensing.
+[Business Source License 1.1](LICENSE) - Free for non-production use. Contact for commercial licensing.
 
 ---
 
