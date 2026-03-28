@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sovereign-shield"
-version = "2.3.2"
-description = "Production-grade AI defense — deterministic filters + optional LLM veto + HITL approval + file validation + hallucination detection."
+version = "2.4.2"
+description = "Production-grade AI defense — deterministic filters + optional LLM veto + HITL approval + file validation + hallucination detection. Hardware-enforced immutability."
 readme = "README.md"
 license = {file = "LICENSE"}
 requires-python = ">=3.8"
@@ -24,7 +24,8 @@ keywords = [
     "jailbreak-prevention",
     "self-improving",
     "adaptive-learning",
-    "multilingual-security"
+    "multilingual-security",
+    "hardware-memory-protection"
 ]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
@@ -37,6 +38,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: C",
     "Operating System :: OS Independent",
 ]
 
@@ -57,5 +59,4 @@ sovereign-shield-daemon = "sovereign_shield.daemon:start_server"
 include = ["sovereign_shield*"]
 
 [tool.setuptools.package-data]
-sovereign_shield = []
-
+sovereign_shield = ["data/*.json", "*.c"]

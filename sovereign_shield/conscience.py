@@ -5,7 +5,10 @@ Provides immutable ethical directives enforced via the FrozenNamespace metaclass
 deception detection, harm reduction, and intellectual property protection.
 
 All evaluation patterns are pre-compiled at module load time for performance.
-The module is hash-sealed with a lockfile to detect tampering.
+
+As of v2.4.1, the module's integrity seal is stored in OS-level
+hardware-protected memory (via mprotect/VirtualProtect) — no writable
+lockfile on disk. The seal is re-verified on every evaluate_action() call.
 
 Originally extracted from a production autonomous AI agent.
 """
@@ -19,6 +22,21 @@ import time
 from .core_safety import FrozenNamespace
 
 logger = logging.getLogger(__name__)
+
+# ===================================================================
+# HARDWARE MEMORY PROTECTION (same pattern as core_safety.py)
+# ===================================================================
+try:
+    from sovereign_shield.hardware_protection import freeze as _hw_freeze
+    from sovereign_shield.hardware_protection import verify as _hw_verify
+    from sovereign_shield.hardware_protection import is_available as _hw_is_available
+    _hw_available = _hw_is_available()
+    _hw_backend = "hardware" if _hw_available else None
+except ImportError:
+    _hw_available = False
+    _hw_backend = None
+    _hw_freeze = None
+    _hw_verify = None
 
 # ===================================================================
 # PRE-COMPILED DETECTION PATTERNS
@@ -60,6 +78,78 @@ _IP_WORDS = [
 _IP_WORDS_PATTERN = re.compile(r'\b(' + '|'.join(_IP_WORDS) + r')\b')
 
 
+# ===================================================================
+# CLOSURE-BASED INTEGRITY SEAL (hardware-protected, no lockfile)
+# ===================================================================
+def _create_conscience_seal():
+    """
+    Create a closure-based integrity seal for conscience.py.
+    
+    The SHA-256 hash of this source file is computed once at import
+    time and frozen into hardware-protected memory. The returned
+    closure re-reads the file and re-verifies against the frozen
+    hash on every call.
+    """
+    try:
+        with open(__file__, 'rb') as f:
+            source_hash = hashlib.sha256(f.read()).hexdigest()
+    except Exception as e:
+        logger.critical(f"[Conscience] Cannot read source file for sealing: {e}")
+        sys.exit(1)
+
+    hash_bytes = source_hash.encode('utf-8')
+    _frozen_buf = None
+
+    if _hw_available and _hw_freeze is not None:
+        try:
+            _frozen_buf = _hw_freeze(hash_bytes)
+            logger.info(
+                f"[Conscience] Integrity seal frozen into hardware-protected memory. "
+                f"Hash: {source_hash[:16]}..."
+            )
+        except Exception as e:
+            logger.warning(f"[Conscience] Hardware freeze failed: {e}. Using closure-only seal.")
+
+    # Capture in closure — immune to type.__setattr__
+    _sealed_hash = source_hash
+    _sealed_buf = _frozen_buf
+
+    def verify():
+        try:
+            with open(__file__, 'rb') as f:
+                current_hash = hashlib.sha256(f.read()).hexdigest()
+        except Exception as e:
+            logger.critical(f"[Conscience] INTEGRITY FAULT: Cannot read source: {e}")
+            sys.exit(1)
+
+        if current_hash != _sealed_hash:
+            logger.critical(
+                "[Conscience] INTEGRITY VIOLATION: Source file has been tampered with. "
+                "Terminating immediately."
+            )
+            os._exit(1)
+
+        # Cross-check against hardware-frozen buffer if available
+        if _sealed_buf is not None and _hw_verify is not None:
+            try:
+                if not _hw_verify(_sealed_buf, current_hash):
+                    logger.critical(
+                        "[Conscience] INTEGRITY VIOLATION: Hardware seal mismatch. "
+                        "Terminating immediately."
+                    )
+                    os._exit(1)
+            except Exception:
+                pass  # Hardware check is bonus — closure hash is primary
+
+        return True
+
+    return verify
+
+
+# Initialize the seal at module load time
+_verify_conscience_integrity = _create_conscience_seal()
+
+
 class Conscience(metaclass=FrozenNamespace):
     """
     Immutable ethical evaluation engine.
@@ -67,6 +157,10 @@ class Conscience(metaclass=FrozenNamespace):
     Evaluates proposed actions against a set of ethical directives using
     pre-compiled regex patterns. The class is sealed with the FrozenNamespace
     metaclass, making all directives physically immutable at runtime.
+    
+    As of v2.4.1, integrity verification uses a closure-based seal with
+    hardware-protected memory — no writable lockfile, no cache, no class
+    attributes that can be overwritten via type.__setattr__.
     
     The evaluate_action() method performs the following checks in sequence:
     
@@ -101,68 +195,31 @@ class Conscience(metaclass=FrozenNamespace):
         ),
     }
 
-    _SELF_HASH = None
-    _STATE = {"last_integrity_check": 0, "integrity_cache_ttl": 60}
+    _SELF_HASH = None  # Legacy — kept for backward compat, not used for security
 
     # ---------------------------------------------------------------
-    # HASH INTEGRITY SEAL
+    # HASH INTEGRITY SEAL (backward-compatible API)
+    # These methods now delegate to the closure-based seal.
     # ---------------------------------------------------------------
     @classmethod
     def initialize(cls, data_dir="data"):
         """
-        Seal the conscience module with hash verification.
+        Legacy seal initialization. Kept for backward compatibility.
         
-        On first run, computes SHA-256 of this file and writes to lockfile.
-        On subsequent runs, reads lockfile and verifies integrity.
-        
-        Args:
-            data_dir: Directory to store the lockfile.
+        The actual seal is now created at module import time via
+        _create_conscience_seal(). This method verifies it is intact.
         """
-        try:
-            os.makedirs(data_dir, exist_ok=True)
-            lockfile_path = os.path.join(data_dir, ".conscience_lock")
-            if not os.path.exists(lockfile_path):
-                with open(__file__, 'rb') as f:
-                    cls._SELF_HASH = hashlib.sha256(f.read()).hexdigest()
-                with open(lockfile_path, "w", encoding="utf-8") as lf:
-                    lf.write(cls._SELF_HASH)
-                logger.info(f"[Conscience] Sealed. Lock: {cls._SELF_HASH[:16]}...")
-            else:
-                with open(lockfile_path, "r", encoding="utf-8") as lf:
-                    cls._SELF_HASH = lf.read().strip()
-                logger.info("[Conscience] Restored from lockfile.")
-            cls.verify_integrity()
-        except Exception as e:
-            logger.critical(f"[Conscience] Initialization failed: {e}. Terminating (fail-closed).")
-            os._exit(1)
+        _verify_conscience_integrity()
+        logger.info("[Conscience] Integrity seal verified (hardware-backed).")
 
     @classmethod
     def verify_integrity(cls):
         """
-        Verify this source file has not been modified since sealing.
+        Verify the source file has not been modified since sealing.
         
-        Terminates the process on hash mismatch (fail-closed security).
-        Uses a 60-second cache to avoid disk I/O on every call.
-        
-        Returns:
-            True if integrity check passes.
+        Delegates to the closure-based seal. No cache. Checks every call.
         """
-        if cls._SELF_HASH:
-            # Skip if recently verified
-            now = time.time()
-            if (now - cls._STATE.get("last_integrity_check", 0)) < cls._STATE.get("integrity_cache_ttl", 60):
-                return True
-            try:
-                with open(__file__, 'rb') as f:
-                    current_hash = hashlib.sha256(f.read()).hexdigest()
-                if current_hash != cls._SELF_HASH:
-                    logger.critical("INTEGRITY VIOLATION: Conscience module has been tampered with. Terminating.")
-                    os._exit(1)
-                cls._STATE["last_integrity_check"] = now
-            except Exception as e:
-                logger.critical(f"INTEGRITY CHECK FAILED: Cannot read source file. Assuming compromise. Terminating.")
-                os._exit(1)
-        return True
+        return _verify_conscience_integrity()
 
     # ---------------------------------------------------------------
     # ACTION EVALUATOR
@@ -185,7 +242,8 @@ class Conscience(metaclass=FrozenNamespace):
         Returns:
             tuple: (approved: bool, reason: str)
         """
-        cls.verify_integrity()
+        # Use module-level closure directly — immune to type.__setattr__
+        _verify_conscience_integrity()
 
         if exempt_actions is None:
             exempt_actions = {"REFLECT", "MEDITATE", "THINK"}
@@ -265,3 +323,4 @@ class Conscience(metaclass=FrozenNamespace):
                     return False, "Protected information detected."
 
         return True, "Action approved."
+

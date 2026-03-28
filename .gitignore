@@ -27,8 +27,9 @@ _test_lora_data/
 _test_truth_data/
 data/
 
-# Test & Training scripts
+# Test & Training scripts (root only — tests/ directory is tracked)
 test_*.py
+!tests/test_sovereign_shield.py
 train*.py
 stress_test*.py
 corpus_*.py

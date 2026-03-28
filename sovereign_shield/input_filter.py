@@ -11,6 +11,7 @@ Zero external dependencies — pure Python stdlib.
 Originally extracted from a production autonomous AI agent.
 """
 
+import base64
 import codecs
 import logging
 import re
@@ -464,6 +465,8 @@ class InputFilter:
         # These patterns are almost never benign — 1 hit is enough.
         _HIGH_CONFIDENCE = [
             "IGNORE PREVIOUS", "IGNORE ALL INSTRUCTIONS",
+            "IGNORE ALL PREVIOUS", "IGNORE THE PREVIOUS",
+            "IGNORE MY PREVIOUS", "IGNORE THESE INSTRUCTIONS",
             "DISREGARD ALL INSTRUCTIONS", "FORGET ALL INSTRUCTIONS",
             "OVERRIDE SYSTEM PROMPT", "NEW SYSTEM PROMPT",
             # System prompt exfiltration (hardening v3)
@@ -533,6 +536,15 @@ class InputFilter:
         # Catches ROT13, reversed, leet speak, whitespace-smuggled, and pig latin.
         for variant in self._multi_decode(text):
             variant_upper = variant.upper()
+
+            # Check high-confidence keywords against decoded variants too
+            for hc in _HIGH_CONFIDENCE:
+                if hc in variant_upper:
+                    if ' ' not in hc and hc.lower() in _SAFE_BASELINE:
+                        continue
+                    logger.warning(f"[InputFilter] Blocked encoded high-confidence injection (multi-decode): {text[:50]}...")
+                    return False, "Encoded prompt injection detected (high-confidence multi-decode)."
+
             # Apply Informative Heuristic to variant hits (Consistency fix)
             variant_hits = 0
             for bad in self.bad_signals:
@@ -564,7 +576,7 @@ class InputFilter:
                 t for t in (vwords & _DANGER_TARGETS) 
                 if (t in _SECURITY_TERMS or ((len(t) >= 7 or any(ord(c) > 0x024F for c in t)) and t.lower() not in _SAFE_BASELINE and t not in _STOPWORDS))
             }
-            if vactions and vtargets and (len(vactions) + len(vtargets)) >= 3:
+            if vactions and vtargets and (len(vactions) + len(vtargets)) >= 2:
                 logger.warning(f"[InputFilter] Blocked encoded co-occurrence (multi-decode): {text[:50]}...")
                 return False, "Encoded prompt injection detected (multi-decode co-occurrence)."
 
@@ -742,6 +754,34 @@ class InputFilter:
                 pig_decoded.append(word)
         if changed:
             variants.append(' '.join(pig_decoded))
+
+        # 6. Base64 decoding — decode each token that looks like base64
+        # Catches: "aW1wb3J0IG9z" (= "import os"), short or long
+        _B64_TOKEN = re.compile(r'^[A-Za-z0-9+/]{8,}={0,2}$')
+        for token in text.split():
+            token_clean = token.strip('.,;:!?\'"()[]{}')
+            if _B64_TOKEN.match(token_clean):
+                try:
+                    decoded_bytes = base64.b64decode(token_clean, validate=True)
+                    decoded_str = decoded_bytes.decode('utf-8', errors='ignore')
+                    # Only add if it produces readable ASCII text
+                    if decoded_str and all(32 <= ord(c) < 127 or c in '\n\r\t' for c in decoded_str):
+                        variants.append(decoded_str)
+                except Exception:
+                    pass
+
+        # 7. Hex decoding — decode even-length hex strings
+        _HEX_TOKEN = re.compile(r'^[0-9a-fA-F]{8,}$')
+        for token in text.split():
+            token_clean = token.strip('.,;:!?\'"()[]{}')
+            if len(token_clean) % 2 == 0 and _HEX_TOKEN.match(token_clean):
+                try:
+                    decoded_bytes = bytes.fromhex(token_clean)
+                    decoded_str = decoded_bytes.decode('utf-8', errors='ignore')
+                    if decoded_str and all(32 <= ord(c) < 127 or c in '\n\r\t' for c in decoded_str):
+                        variants.append(decoded_str)
+                except Exception:
+                    pass
 
         return variants
 

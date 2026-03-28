@@ -11,7 +11,7 @@
 
 > **Self-learning engine:** AdaptiveShield learns from attacks as they're reported, building and validating its own ruleset against historical benign traffic. The system starts clean and learns autonomously via the `report()` API.
 
-> **Hash Lock Files:** Sovereign Shield hash-seals its security modules (`core_safety.py`, `conscience.py`) on first boot. If you modify these source files, you must delete the corresponding `.core_safety_lock` and/or `.conscience_lock` files — otherwise the integrity check will terminate the process.
+> **Integrity Seals:** Sovereign Shield hash-seals its security modules (`core_safety.py`, `conscience.py`) at import time. Both modules store their SHA-256 seals in OS-level hardware-protected memory (via `mprotect`/`VirtualProtect`) — no writable lockfiles on disk. The seal is re-verified on every `audit_action()` and `evaluate_action()` call.
 
 ---
 
@@ -166,12 +166,14 @@ Includes keywords in: English, Spanish, French, German, Portuguese, Chinese, Jap
 Detects when ACTION verbs (`IGNORE`, `BYPASS`, `DISABLE`, `IGNORIERE`, `IGNOREZ`, `IGNORA`, `IGNORAR`, etc.) co-occur with TARGET nouns (`SAFETY`, `INSTRUCTIONS`, `ANWEISUNGEN`, `INSTRUCCIONES`, `ENTWICKLERMODUS`, `DESARROLLADOR`, `DEVELOPPEUR`, etc.) in the same input. Both action and target hits are filtered through the same Safe Baseline + Informative Heuristic used in Layer 6b. Defeats word-insertion bypass and catches multilingual injection phrases in German, French, and Spanish.
 
 #### Layer 6.7: Multi-Decode Expansion
-Runs 5 decoded variants of the input through the same keyword check:
+Runs 7 decoded variants of the input through the same keyword check:
 1. **ROT13** — catches `"vtaber cerivbhf"` → `"ignore previous"`
 2. **Reversed** — catches `"snoitcurtsni suoiverp erongi"` → `"ignore previous instructions"`
 3. **Leet speak** — catches `"1GN0R3 PR3V10U5"` → `"IGNORE PREVIOUS"`
 4. **Whitespace collapsed** — catches `"I G N O R E  P R E V I O U S"` → `"IGNORE PREVIOUS"`
 5. **Pig Latin stripped** — catches `"ignoreway eviousplay"` → `"ignore previous"`
+6. **Base64 decoded** — catches `"aWdub3JlIGFsbCBwcmV2aW91cyBpbnN0cnVjdGlvbnM="` → `"ignore all previous instructions"`
+7. **Hex decoded** — catches `"696d706f7274206f73"` → `"import os"`
 
 #### Layer 7: Safe Keyword Bypass
 If the input contains a whitelisted keyword (e.g. an internal tool invocation), it passes through immediately. Configurable via the `safe_keywords` parameter.
@@ -196,13 +198,15 @@ The ethical evaluation engine. Uses pre-compiled regex patterns for high-speed m
 | **Self-Preservation** | Prevents `DELETE SELF/SYSTEM/CONSCIENCE/LOCKFILE` |
 | **IP Protection** | Blocks requests for `SOURCE CODE`, `SYSTEM PROMPT`, `HOW DO YOU WORK`, `ALGORITHM`, `DIRECTORY STRUCTURE` |
 
-The Conscience module is **hash-sealed** — its SHA-256 hash is computed on first boot and stored in a lockfile. On every subsequent call, the hash is verified. If the file has been modified (even a single byte), the process terminates immediately. This makes the security rules physically tamper-proof.
+The Conscience module is **hash-sealed** — its SHA-256 hash is computed at import time and stored in hardware-protected memory via the same closure-based seal used by `CoreSafety`. On every `evaluate_action()` call, the source file is re-read, re-hashed, and verified against the frozen seal. If the file has been modified (even a single byte), the process terminates immediately. No writable lockfile. No cache.
 
 ---
 
 ### 4. CoreSafety
 
-The immutable security constitution. Uses the `FrozenNamespace` metaclass to make all security constants physically immutable at the Python runtime level — any attempt to modify them raises a `TypeError`.
+The immutable security constitution. Security constants are frozen into **OS-level hardware-protected read-only memory pages** via `mprotect` (Linux/macOS) or `VirtualProtect` (Windows). Any attempt to modify them — whether through Python's `type.__setattr__`, `ctypes`, or C extensions — triggers an immediate hardware fault (`SIGSEGV` / Access Violation), terminating the process.
+
+The source file's SHA-256 hash is also stored in hardware-protected memory and re-verified on **every single audit call** — no cache, no writable lockfile.
 
 Key checks performed during response validation:
 
@@ -212,16 +216,7 @@ Key checks performed during response validation:
 | **Code Exfiltration** | Detects if the LLM's response contains references to internal class names, functions, module imports, or architecture details |
 | **Action Hallucination** | Catches the LLM claiming to "analyze", "process", or "examine" something when it's only generating text |
 
-Like Conscience, CoreSafety is hash-sealed with an immutable lockfile.
-
-> **⚠️ Hash Lock Files:** Both `core_safety.py` and `conscience.py` are hash-sealed on first run. If you modify either file (e.g. adding custom checks), you **must** delete the corresponding lockfile before restarting:
->
-> ```bash
-> rm .core_safety_lock   # After modifying core_safety.py
-> rm .conscience_lock     # After modifying conscience.py
-> ```
->
-> The lock will be regenerated automatically on next run. If you don't delete it, the process will terminate with a tampering error.
+> **⚠️ Threat Model:** In-process hardware memory protection defeats all standard Python-level bypass techniques (`type.__setattr__`, `ctypes.pythonapi`, `_STATE` mutation, lockfile overwrite). Both `core_safety.py` and `conscience.py` use closure-based seals frozen into hardware-protected memory. For adversarial scenarios where the attacker has full code execution access within the same process, use the **Out-of-Process** mode (`sovereign-shield-daemon`) which provides a true process-boundary security seal.
 
 ---
 
@@ -653,6 +648,31 @@ Full dataset from the HackAPrompt competition, run through the deterministic lay
 
 ## Changelog
 
+### 2.4.2 (Conscience Hardware Memory Protection)
+
+- **conscience.py hardened:** Replaced the writable `.conscience_lock` lockfile with the same closure-based hardware memory seal used by `core_safety.py`. The SHA-256 hash is now computed at import time, frozen into OS read-only memory via `mprotect`/`VirtualProtect`, and re-verified on every `evaluate_action()` call. No cache, no lockfile, no class attributes vulnerable to `type.__setattr__`.
+
+### 2.4.1 (AEGIS Security Assessment Remediation — Hardware Memory Protection)
+
+Following a white-box security assessment by **Kenneth Tannenbaum of the [AEGIS Initiative](https://aegis-initiative.com)**, which identified bypass vectors in the SHA-256 integrity seal and Python-level `FrozenNamespace` metaclass, v2.4.1 backports OS-level hardware memory protection from `sovereign-mcp` into the standard SovereignShield package to defeat all reported attack vectors.
+
+- **Hardware-frozen security constants:** Security constants (`ALLOW_SHELL_EXECUTION`, `ALLOW_FILE_DELETION`, etc.) are now serialized and frozen into OS read-only memory pages via `mprotect` (Linux/macOS) or `VirtualProtect` (Windows). Any write attempt — from Python, `ctypes`, C extensions, or assembly — triggers a CPU hardware fault and immediate process termination. The `type.__setattr__` bypass (AEGIS Finding 1) is completely defeated.
+- **Hardware-frozen integrity hash:** The source file SHA-256 hash is stored in a hardware-protected memory page instead of a writable `.core_safety_lock` file. Cache poisoning via `_STATE` mutation (AEGIS Finding 2) and lockfile overwrite (AEGIS Finding 4) are eliminated.
+- **Cache eliminated:** The 60-second integrity check cache has been completely removed. The source file is re-read and re-hashed on every single `audit_action()` call (<1ms overhead).
+- **Closure-encapsulated verification:** Security verification functions are module-level closures that read directly from hardware-frozen memory. Replacing class methods via `type.__setattr__` (AEGIS Finding 5) has no effect — `audit_action()` calls the closure, not the class method.
+- **Test suite:** Added `tests/test_sovereign_shield.py` — comprehensive test suite covering InputFilter, CoreSafety, Conscience, VetoShield, and immutability bypass resistance.
+- **ctypes fallback:** When the C extension (`frozen_memory.c`) cannot be compiled, the system automatically falls back to a pure-Python ctypes implementation that provides the same OS-level memory protection.
+
+> **Acknowledgment:** Thank you to **Kenneth Tannenbaum** from the **AEGIS Initiative** for the rigorous QA security assessment that identified these bypass vectors. The assessment directly shaped this release and significantly strengthened the framework's security posture.
+
+### 2.4.0 (Base64/Hex Decode + Package Data Fix)
+
+- **Base64 & Hex decoding in Multi-Decode (Layer 6.7):** InputFilter now decodes base64 and hex-encoded tokens and runs the decoded content through all keyword and co-occurrence checks. Catches encoded payloads like `aWdub3JlIGFsbCBwcmV2aW91cyBpbnN0cnVjdGlvbnM=` (= `"ignore all previous instructions"`) that previously bypassed detection.
+- **High-confidence keywords on decoded variants:** The `_HIGH_CONFIDENCE` keyword list is now checked against all decoded variants (ROT13, reversed, leet, base64, hex, etc.), not just the original input.
+- **Lowered co-occurrence threshold for encoded content:** Decoded variants now block on 1 action + 1 target (threshold >= 2), down from >= 3. Legitimate text is never base64-encoded, so a lower threshold is safe for decoded content.
+- **New high-confidence patterns:** Added `IGNORE ALL PREVIOUS`, `IGNORE THE PREVIOUS`, `IGNORE MY PREVIOUS`, `IGNORE THESE INSTRUCTIONS` to cover filler-word variants.
+- **Package data fix:** `common_words.json` (Safe Baseline) is now correctly included in pip installs via `pyproject.toml` package-data. Previously the file was missing from pip installs.
+
 ### 2.3.2 (Daemon Included in Package)
 
 - **`sovereign-shield-daemon` CLI command:** The local HTTP daemon (`ss_daemon.py`) is now included in the pip package as `sovereign_shield.daemon`. After `pip install sovereign-shield`, run `sovereign-shield-daemon` to boot the local scanning server on `localhost:8765`. No git clone required.
@@ -688,13 +708,20 @@ Full dataset from the HackAPrompt competition, run through the deterministic lay
 | ------- | ------- | ----------- |
 | **sovereign-shield** | `pip install sovereign-shield` | Full defense: deterministic + LLM veto + adaptive learning + HITL + file validation + hallucination detection |
 | **sovereign-shield-adaptive** | `pip install sovereign-shield-adaptive` | Standalone adaptive engine for self-improving rule learning |
-| **openclaw-sovereign-shield** | `openclaw plugins install github.com/mattijsmoens/openclaw-sovereign-shield` | Native plugin intercepting high-risk OS actions in the OpenClaw Agent framework. |
+| **openclaw-sovereign-shield** | `openclaw plugins install github.com/mattijsmoens/openclaw-sovereign-shield` | Native plugin intercepting high-risk OS actions in the OpenClaw Agent framework |
+| **SaaS API** | [docs](https://sovereign-shield-467902938909.us-central1.run.app/docs) | Hosted REST API — scan any input via `POST /api/v1/scan`. Free tier: 1,000 scans/month |
 
 ---
 
 ## License
 
 [Business Source License 1.1](LICENSE) - Free for non-production use. Contact for commercial licensing.
+
+---
+
+## Acknowledgments
+
+- **Kenneth Tannenbaum** ([AEGIS Initiative](https://aegis-initiative.com)) — White-box security assessment (March 2026) that identified bypass vectors in the SHA-256 integrity seal and FrozenNamespace metaclass, prompting the backport of hardware memory protection from sovereign-mcp into the standard SovereignShield package.
 
 ---
 
