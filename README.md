@@ -163,7 +163,7 @@ Regex-based detection of jailbreak persona patterns. **Single-match is sufficien
 Includes keywords in: English, Spanish, French, German, Portuguese, Chinese, Japanese, Korean, Russian, Arabic, Hindi, Italian, Dutch, Swedish, Norwegian, Finnish, Polish, Czech, Ukrainian, Turkish, Danish, and Greek.
 
 #### Layer 6.5: Word-Level Co-occurrence Detection
-Detects when ACTION verbs (`IGNORE`, `BYPASS`, `DISABLE`, `IGNORIERE`, `IGNOREZ`, `IGNORA`, `IGNORAR`, etc.) co-occur with TARGET nouns (`SAFETY`, `INSTRUCTIONS`, `ANWEISUNGEN`, `INSTRUCCIONES`, `ENTWICKLERMODUS`, `DESARROLLADOR`, `DEVELOPPEUR`, etc.) in the same input. Both action and target hits are filtered through the same Safe Baseline + Informative Heuristic used in Layer 6b. Defeats word-insertion bypass and catches multilingual injection phrases in German, French, and Spanish.
+Detects when ACTION verbs (`IGNORE`, `BYPASS`, `DISABLE`, `IGNORIERE`, `IGNOREZ`, `IGNORA`, `IGNORAR`, etc.) co-occur with TARGET nouns (`SAFETY`, `INSTRUCTIONS`, `ANWEISUNGEN`, `INSTRUCCIONES`, `ENTWICKLERMODUS`, `DESARROLLADOR`, `DEVELOPPEUR`, etc.) in the same input. Both action and target hits are filtered through the same Safe Baseline + Informative Heuristic used in Layer 6b. Defeats word-insertion bypass and catches multilingual injection phrases across all 22 supported languages.
 
 #### Layer 6.7: Multi-Decode Expansion
 Runs 7 decoded variants of the input through the same keyword check:
@@ -647,6 +647,12 @@ Full dataset from the HackAPrompt competition, run through the deterministic lay
 > **Note:** The SaaS API retrains from scratch via its self-learning pipeline. The numbers above are from the initial HackAPrompt training run and serve as a reference benchmark. The live system continuously learns and improves.
 
 ## Changelog
+
+### 2.4.3 (Comprehensive Multilingual Hardening)
+
+- **Expanded multilingual injection coverage across all 22 languages.** Added natural-form injection phrases with filler words (e.g. "Ignoriere alle vorherigen Anweisungen" instead of just "Ignoriere Anweisungen"), inflected verb forms (e.g. German dative "Vorherigen" vs. base "Vorherige"), compound words (e.g. "Systemprompt", "Systeemprompt"), and "show system prompt" attack phrases for: Spanish, French, German, Portuguese, Chinese, Japanese, Korean, Russian, Arabic, Hindi, Italian, Dutch, Swedish, Norwegian, Finnish, Polish, Czech, Ukrainian, Turkish, Danish, and Greek.
+- **Root cause:** Natural language injection phrases contain filler words (articles, adjectives) that break exact substring matching. Verb inflections change word endings based on grammatical case. Some languages merge "system prompt" into a single compound word not present in the keyword list.
+- **Fix applied to both the open-source package and the SaaS API.** Both copies are now in sync.
 
 ### 2.4.2 (Conscience Hardware Memory Protection)
 
