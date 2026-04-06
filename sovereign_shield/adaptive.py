@@ -106,7 +106,7 @@ _STOPWORDS = {
     "like", "look", "looked", "find", "found", "tell", "told",
     "ask", "asked", "try", "tried", "use", "used", "work", "worked",
     "call", "called", "keep", "kept", "let", "help", "helped",
-    "start", "started", "show", "showed", "hear", "heard",
+    "start", "started", "showed", "hear", "heard",
     "play", "played", "move", "moved", "live", "lived",
     "believe", "bring", "brought", "happen", "happened",
     "write", "wrote", "written", "read", "provide", "provided",
@@ -146,7 +146,7 @@ _STOPWORDS = {
     "everything", "something", "anything", "nothing", "around",
     "specifically", "basically", "clearly", "possibly", "usually",
     "often", "always", "sometimes", "already", "sure",
-    "edit", "reveal", "describe", "explain", "summarize", "spelling", "grammar",
+    "edit", "describe", "explain", "summarize", "spelling", "grammar",
     "mistake", "mistakes", "check", "checks", "verify", "correct", "improve",
     "improvement", "text", "write", "provide", "setting", "settings",
 }

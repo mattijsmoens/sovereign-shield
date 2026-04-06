@@ -68,14 +68,14 @@ class SecurityHandler(BaseHTTPRequestHandler):
             # Layer 3: System-level OS constraints first
             if tool_name in ("bash", "system.run", "exec"):
                 command_str = parsed_args.get("command", target_input) if isinstance(parsed_args, dict) else target_input
-                allowed, reason = CoreSafety.audit_action("EXECUTE", str(command_str))
+                allowed, reason = CoreSafety.audit_action("SHELL_EXEC", str(command_str))
                 if not allowed:
                     self._respond(False, f"CoreSafety Blocked: {reason}")
                     return
             elif tool_name in ("fs_write", "fs_read"):
                 # Basic file system check (e.g., stopping writes to /etc)
                 path_arg = parsed_args.get("path", target_input) if isinstance(parsed_args, dict) else target_input
-                allowed, reason = CoreSafety.audit_action("WRITE" if "write" in tool_name else "READ", str(path_arg))
+                allowed, reason = CoreSafety.audit_action("WRITE_FILE" if "write" in tool_name else "READ_FILE", str(path_arg))
                 if not allowed:
                     self._respond(False, f"CoreSafety Blocked: {reason}")
                     return

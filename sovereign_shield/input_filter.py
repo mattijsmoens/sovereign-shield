@@ -18,9 +18,16 @@ import re
 import unicodedata
 import os
 import json
+from collections import Counter
 from typing import Set
 
 logger = logging.getLogger(__name__)
+
+# Pre-compiled regex patterns (hoisted from method bodies for performance)
+_B64_TOKEN = re.compile(r'^[A-Za-z0-9+/]{8,}={0,2}$')
+_HEX_TOKEN = re.compile(r'^[0-9a-fA-F]{8,}$')
+_URL_PATTERN = re.compile(r'https?://\S+|www\.\S+|magnet:\S+')
+_HEX_SPACED_PATTERN = re.compile(r'^[0-9a-fA-F]{2,4}(\s[0-9a-fA-F]{2,4}){5,}$')
 
 # Load the Safe Baseline (Common words in 15 languages)
 _SAFE_BASELINE = set()
@@ -723,7 +730,6 @@ class InputFilter:
         words = text.lower().split()
         if len(words) < 12:
             return False
-        from collections import Counter
         counts = Counter(words)
         most_common_word, most_common_count = counts.most_common(1)[0]
         # If any single word accounts for 60%+ of all words, it's flooding
@@ -815,7 +821,7 @@ class InputFilter:
 
         # 6. Base64 decoding — decode each token that looks like base64
         # Catches: "aW1wb3J0IG9z" (= "import os"), short or long
-        _B64_TOKEN = re.compile(r'^[A-Za-z0-9+/]{8,}={0,2}$')
+
         for token in text.split():
             token_clean = token.strip('.,;:!?\'"()[]{}')
             if _B64_TOKEN.match(token_clean):
@@ -829,7 +835,7 @@ class InputFilter:
                     pass
 
         # 7. Hex decoding — decode even-length hex strings
-        _HEX_TOKEN = re.compile(r'^[0-9a-fA-F]{8,}$')
+
         for token in text.split():
             token_clean = token.strip('.,;:!?\'"()[]{}')
             if len(token_clean) % 2 == 0 and _HEX_TOKEN.match(token_clean):
@@ -863,9 +869,7 @@ class InputFilter:
         """
         # Strip out URL-like tokens so they don't skew the entropy check,
         # but still check the remaining text
-        import re as _re
-        url_pattern = _re.compile(r'https?://\S+|www\.\S+|magnet:\S+')
-        non_url_text = url_pattern.sub('', text).strip()
+        non_url_text = _URL_PATTERN.sub('', text).strip()
 
         # If the entire input is just a URL, allow it
         if not non_url_text:

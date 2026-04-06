@@ -92,32 +92,33 @@ def _create_conscience_seal():
     """
     try:
         with open(__file__, 'rb') as f:
-            source_hash = hashlib.sha256(f.read()).hexdigest()
+            source_bytes = f.read()
+        source_hash_bytes = hashlib.sha256(source_bytes).digest()  # 32 raw bytes
+        source_hash_hex = hashlib.sha256(source_bytes).hexdigest()  # For logging
     except Exception as e:
         logger.critical(f"[Conscience] Cannot read source file for sealing: {e}")
         sys.exit(1)
 
-    hash_bytes = source_hash.encode('utf-8')
     _frozen_buf = None
 
     if _hw_available and _hw_freeze is not None:
         try:
-            _frozen_buf = _hw_freeze(hash_bytes)
+            _frozen_buf = _hw_freeze(source_bytes)
             logger.info(
                 f"[Conscience] Integrity seal frozen into hardware-protected memory. "
-                f"Hash: {source_hash[:16]}..."
+                f"Hash: {source_hash_hex[:16]}..."
             )
         except Exception as e:
             logger.warning(f"[Conscience] Hardware freeze failed: {e}. Using closure-only seal.")
 
     # Capture in closure — immune to type.__setattr__
-    _sealed_hash = source_hash
+    _sealed_hash = source_hash_bytes
     _sealed_buf = _frozen_buf
 
     def verify():
         try:
             with open(__file__, 'rb') as f:
-                current_hash = hashlib.sha256(f.read()).hexdigest()
+                current_hash = hashlib.sha256(f.read()).digest()
         except Exception as e:
             logger.critical(f"[Conscience] INTEGRITY FAULT: Cannot read source: {e}")
             sys.exit(1)

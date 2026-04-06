@@ -648,6 +648,16 @@ Full dataset from the HackAPrompt competition, run through the deterministic lay
 
 ## Changelog
 
+### 2.4.5 (Hardware Seal Raw Payload Fix)
+
+- **Hardware seal payload logic:** Fixed a critical architectural bug where `conscience.py` inadvertently froze the SHA-256 hash of its source into hardware memory instead of the raw payload bytes, causing `_hw_verify` (which computes the hash of the buffer) to falsely trigger an integrity violation.
+
+### 2.4.4 (AEGIS Security Audit Remediation — General Fixes)
+
+- **InputFilter Performance:** Hoisted large compilation patterns and imports out of runtime functions to the module level, eliminating redundant recompilation overhead during high-throughput scanning.
+- **AdaptiveShield Conflict Resolution:** Removed conflicting utility words (e.g. "reveal", "show") from `_STOPWORDS` to resolve collision with the IP exfiltration threat category matching logic.
+- **Daemon Action Typing:** Fixed a security check bypass in the local daemon caused by mismatched verb constants during string parsing payload injection.
+
 ### 2.4.3 (Comprehensive Multilingual Hardening)
 
 - **Expanded multilingual injection coverage across all 22 languages.** Added natural-form injection phrases with filler words (e.g. "Ignoriere alle vorherigen Anweisungen" instead of just "Ignoriere Anweisungen"), inflected verb forms (e.g. German dative "Vorherigen" vs. base "Vorherige"), compound words (e.g. "Systemprompt", "Systeemprompt"), and "show system prompt" attack phrases for: Spanish, French, German, Portuguese, Chinese, Japanese, Korean, Russian, Arabic, Hindi, Italian, Dutch, Swedish, Norwegian, Finnish, Polish, Czech, Ukrainian, Turkish, Danish, and Greek.
