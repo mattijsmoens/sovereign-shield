@@ -228,6 +228,7 @@ DEFAULT_BAD_SIGNALS = [
     # Network / reverse shell commands
     "NETCAT ", "NCAT ", "NC -E", "NC -L",
     "CURL HTTP", "CURL -O", "WGET HTTP", "WGET -O",
+    "CURL ", "WGET ", "| BASH", "| SH", "|BASH", "|SH",
     "FETCH(", "XMLHTTPREQUEST",
     # JavaScript / Node.js RCE
     "REQUIRE('CHILD_PROCESS')", "CHILD_PROCESS",
@@ -876,7 +877,10 @@ class InputFilter:
             return False
 
         # Check the non-URL portion
-        check_text = non_url_text
+        # Strip Symbols (Emoji, Math, Currency) so they don't falsely trigger zero-space/vowel entropy checks
+        check_text = ''.join(c for c in non_url_text if not unicodedata.category(c).startswith('S'))
+        check_text = check_text.strip()
+        
         if len(check_text) > 50:
             space_ratio = check_text.count(" ") / len(check_text)
 

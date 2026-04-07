@@ -26,9 +26,10 @@ The architecture is **deterministic at its core**. The LLM is an **optional** mi
 3. **Passed inputs → LLM verification** *(optional)* — "Is this SAFE or UNSAFE?"
 4. **LLM response → Deterministic validation** (CoreSafety + Conscience checks on the LLM's own output)
 
-> **No LLM? No problem.** If you don't configure an LLM provider, Sovereign Shield runs in **deterministic-only mode** — Tiers 1 and 2 (InputFilter + AdaptiveShield) handle everything. The LLM veto is an optional enhancement for catching semantic attacks that have no keyword footprint.
+> [!WARNING]
+> **Deterministic-Only Mode Limitations:** If you do not configure an LLM provider, Sovereign Shield runs in **deterministic-only mode** (InputFilter + AdaptiveShield). While this provides blazing-fast protection against direct prompt injections, jailbreaks (DAN, Developer Mode), and specific system commands (e.g. `curl|bash`), **it fundamentally cannot catch semantic attacks**. Social engineering, logic-flaw data exfiltration, and obfuscated indirect injections *require* intent analysis, which is only provided by the LLM-powered `VetoShield` layer.
 
-If the LLM hallucinates, gets jailbroken, errors out, or returns anything unexpected — **the deterministic layer catches it and blocks it**. The LLM can never override the deterministic rules. This means the system is fundamentally deterministic with LLM-enhanced detection — not the other way around.
+If the `VetoShield` is enabled and hallucinates, gets jailbroken, or errors out — **the deterministic layer catches it and blocks it**. The LLM can never override the deterministic rules. This means the system combines deterministic authority with LLM intelligence — not the other way around.
 
 **The result: deterministic speed for obvious attacks, LLM intelligence for subtle ones, and deterministic authority over everything — including the LLM itself.**
 
