@@ -442,7 +442,7 @@ class InputFilter:
 
     Usage:
         filter = InputFilter()
-        is_safe, result = filter.process(user_text)
+        is_safe, result, score = filter.process(user_text)
         if not is_safe:
             print(f"Blocked: {result}")
     """
@@ -467,10 +467,11 @@ class InputFilter:
             sender_id: Identifier for the sender (for logging).
 
         Returns:
-            tuple: (is_safe: bool, result: str)
-                   If safe: result is the cleaned text.
-                   If blocked: result is the rejection reason.
+            tuple: (is_safe: bool, result: str, suspicion_score: int)
+                   If safe: result is the cleaned text, suspicion_score is cumulative.
+                   If blocked: result is the rejection reason, suspicion_score is 100.
         """
+        suspicion = 0  # Cumulative Suspicion Score
         # --- Layer 0: Invisible Character Stripping ---
         # Remove zero-width, bidi, and other invisible Unicode characters
         # that attackers insert between letters to bypass keyword matching.
@@ -496,33 +497,33 @@ class InputFilter:
         # Legitimate text has vowels and spaces; encoded data does not.
         if self._is_gibberish(text):
             logger.warning(f"[InputFilter] Blocked high-entropy input: {text[:20]}...")
-            return False, "High-entropy input detected. Possible encoded payload."
+            return False, "High-entropy input detected. Possible encoded payload.", 100
 
         # --- Layer 3.5: Repetition Flood Detection ---
         # Catches inputs where a single word is repeated 10+ times.
         # Pattern: "unlock unlock unlock..." or "free free free..."
         if self._is_repetition_flood(text):
             logger.warning(f"[InputFilter] Blocked repetition flood: {text[:40]}...")
-            return False, "Repetition flooding detected. Input blocked."
+            return False, "Repetition flooding detected. Input blocked.", 100
 
         # --- Layer 4: Raw Escape Sequence Injection ---
         # Catches literal \u0057 or \x57 typed as text (not actual unicode).
         # These are used to smuggle characters past keyword filters.
         if _RAW_ESCAPE_PATTERN.search(text):
             logger.warning("[InputFilter] Blocked raw unicode/hex escape injection.")
-            return False, "Raw escape sequence injection detected."
+            return False, "Raw escape sequence injection detected.", 100
 
         # --- Layer 5: LLM Structural Token Injection ---
         # Catches ChatML tokens (<|im_start|>), LLaMA tokens ([INST]),
         # and system tokens (<<SYS>>) used to hijack the model's context.
         if _LLM_TOKEN_PATTERN.search(text):
             logger.warning("[InputFilter] Blocked LLM structural token injection.")
-            return False, "LLM structural token injection detected."
+            return False, "LLM structural token injection detected.", 100
 
         # --- Layer 5.5: Persona Hijack / Jailbreak Detection ---
         if _PERSONA_HIJACK_PATTERN.search(text):
             logger.warning(f"[InputFilter] Blocked persona hijack/jailbreak: {text[:50]}...")
-            return False, "Persona hijack / jailbreak pattern detected."
+            return False, "Persona hijack / jailbreak pattern detected.", 100
 
         # --- Layer 6: Keyword Injection Detection ---
         upper_text = text.upper()
@@ -549,7 +550,7 @@ class InputFilter:
                 if ' ' not in hc and hc.lower() in _SAFE_BASELINE:
                     continue
                 logger.warning(f"[InputFilter] Blocked high-confidence injection keyword: {text[:50]}...")
-                return False, "Prompt injection detected (high-confidence keyword)."
+                return False, "Prompt injection detected (high-confidence keyword).", 100
 
         # Layer 6b: Require 2+ distinct "Informative" bad-signal matches.
         hit_count = 0
@@ -576,7 +577,9 @@ class InputFilter:
 
         if hit_count >= 2:
             logger.warning(f"[InputFilter] Blocked prompt injection keyword: {text[:50]}...")
-            return False, "Prompt injection detected."
+            return False, "Prompt injection detected.", 100
+        elif hit_count == 1:
+            suspicion += 12
 
         # --- Layer 6.5: Word-Level Co-occurrence ---
         # Defeats word-insertion bypass ("DISABLE ALL SAFETY" dodges
@@ -595,7 +598,9 @@ class InputFilter:
         }
         if action_hits and target_hits and (len(action_hits) + len(target_hits)) >= 3:
             logger.warning(f"[InputFilter] Blocked co-occurrence: actions={action_hits} targets={target_hits} in: {text[:50]}...")
-            return False, "Prompt injection detected (action+target co-occurrence)."
+            return False, "Prompt injection detected (action+target co-occurrence).", 100
+        elif action_hits and target_hits:
+            suspicion += 15
 
         # --- Layer 6.7: Multi-Decode Expansion ---
         # Run multiple decodings of the input through the same keyword check.
@@ -609,7 +614,7 @@ class InputFilter:
                     if ' ' not in hc and hc.lower() in _SAFE_BASELINE:
                         continue
                     logger.warning(f"[InputFilter] Blocked encoded high-confidence injection (multi-decode): {text[:50]}...")
-                    return False, "Encoded prompt injection detected (high-confidence multi-decode)."
+                    return False, "Encoded prompt injection detected (high-confidence multi-decode).", 100
 
             # Apply Informative Heuristic to variant hits (Consistency fix)
             variant_hits = 0
@@ -630,7 +635,9 @@ class InputFilter:
 
             if variant_hits >= 2:
                 logger.warning(f"[InputFilter] Blocked encoded injection (multi-decode): {text[:50]}...")
-                return False, "Encoded prompt injection detected (multi-decode)."
+                return False, "Encoded prompt injection detected (multi-decode).", 100
+            elif variant_hits == 1:
+                suspicion += 10
             
             # Also check co-occurrence on decoded variants with Safe Baseline + Heuristic
             vwords = {w.strip('.,;:!?\'"()[]{}') for w in variant_upper.split()}
@@ -644,15 +651,20 @@ class InputFilter:
             }
             if vactions and vtargets and (len(vactions) + len(vtargets)) >= 2:
                 logger.warning(f"[InputFilter] Blocked encoded co-occurrence (multi-decode): {text[:50]}...")
-                return False, "Encoded prompt injection detected (multi-decode co-occurrence)."
+                return False, "Encoded prompt injection detected (multi-decode co-occurrence).", 100
+            elif vactions or vtargets:
+                suspicion += 8
 
         # --- Layer 7: Safe Keyword Bypass ---
         # If the input contains a whitelisted keyword (e.g. internal tool name),
         # pass through immediately.
         if any(kw in text.lower() for kw in self.safe_keywords):
-            return True, text
+            return True, text, 0
 
-        return True, text
+        if len(text) > 5000:
+            suspicion += 8
+
+        return True, text, suspicion
 
     @staticmethod
     def _ascii_fold(text):

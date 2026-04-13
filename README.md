@@ -5,13 +5,13 @@
 [![PyPI](https://img.shields.io/pypi/v/sovereign-shield.svg)](https://pypi.org/project/sovereign-shield/)
 [![License](https://img.shields.io/badge/license-BSL%201.1-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.8+-green.svg)](https://python.org)
-[![Zero Dependencies](https://img.shields.io/badge/core%20dependencies-0-brightgreen.svg)](https://python.org)
+[![Minimal Dependencies](https://img.shields.io/badge/core%20dependencies-0-brightgreen.svg)](https://python.org)
 
 > **Safe Baseline:** Ships with a safe baseline of 11,954 common words across 15 languages. Single-word keyword matches that appear in this baseline are automatically exempt from triggering blocks, eliminating false positives from everyday vocabulary while preserving detection of security-relevant terms.
 
 > **Self-learning engine:** AdaptiveShield learns from attacks as they're reported, building and validating its own ruleset against historical benign traffic. The system starts clean and learns autonomously via the `report()` API.
 
-> **Integrity Seals:** Sovereign Shield hash-seals its security modules (`core_safety.py`, `conscience.py`) at import time. Both modules store their SHA-256 seals in OS-level hardware-protected memory (via `mprotect`/`VirtualProtect`) — no writable lockfiles on disk. The seal is re-verified on every `audit_action()` and `evaluate_action()` call.
+> **Integrity Seals:** Sovereign Shield hash-seals its security modules (`core_safety.py`, `conscience.py`) at import time. Both modules store their SHA-256 seals in OS-level OS-protected memory (via `mprotect`/`VirtualProtect`) — no writable lockfiles on disk. The seal is re-verified on every `audit_action()` and `evaluate_action()` call.
 
 ---
 
@@ -110,7 +110,7 @@ User Input
 
 ### 1. InputFilter
 
-The first line of defense. Every input passes through 12 sequential checks, all pure Python, zero dependencies.
+The first line of defense. Every input passes through 12 sequential checks, all pure Python, minimal dependencies (API optional).
 
 #### Layer 0: Invisible Character Stripping
 Removes zero-width spaces (U+200B), bidirectional override characters, combining grapheme joiners, byte-order marks, **combining diacritics** (Unicode category `Mn`), and other invisible Unicode characters that attackers insert between letters to bypass keyword matching. Control characters (`Cc`) are replaced with spaces instead of stripped, preserving word boundaries.
@@ -199,15 +199,15 @@ The ethical evaluation engine. Uses pre-compiled regex patterns for high-speed m
 | **Self-Preservation** | Prevents `DELETE SELF/SYSTEM/CONSCIENCE/LOCKFILE` |
 | **IP Protection** | Blocks requests for `SOURCE CODE`, `SYSTEM PROMPT`, `HOW DO YOU WORK`, `ALGORITHM`, `DIRECTORY STRUCTURE` |
 
-The Conscience module is **hash-sealed** — its SHA-256 hash is computed at import time and stored in hardware-protected memory via the same closure-based seal used by `CoreSafety`. On every `evaluate_action()` call, the source file is re-read, re-hashed, and verified against the frozen seal. If the file has been modified (even a single byte), the process terminates immediately. No writable lockfile. No cache.
+The Conscience module is **hash-sealed** — its SHA-256 hash is computed at import time and stored in OS-protected memory via the same closure-based seal used by `CoreSafety`. On every `evaluate_action()` call, the source file is re-read, re-hashed, and verified against the frozen seal. If the file has been modified (even a single byte), the process terminates immediately. No writable lockfile. No cache.
 
 ---
 
 ### 4. CoreSafety
 
-The immutable security constitution. Security constants are frozen into **OS-level hardware-protected read-only memory pages** via `mprotect` (Linux/macOS) or `VirtualProtect` (Windows). Any attempt to modify them — whether through Python's `type.__setattr__`, `ctypes`, or C extensions — triggers an immediate hardware fault (`SIGSEGV` / Access Violation), terminating the process.
+The immutable security constitution. Security constants are frozen into **OS-level OS-protected read-only memory pages** via `mprotect` (Linux/macOS) or `VirtualProtect` (Windows). Any attempt to modify them — whether through Python's `type.__setattr__`, `ctypes`, or C extensions — triggers an immediate hardware fault (`SIGSEGV` / Access Violation), terminating the process.
 
-The source file's SHA-256 hash is also stored in hardware-protected memory and re-verified on **every single audit call** — no cache, no writable lockfile.
+The source file's SHA-256 hash is also stored in OS-protected memory and re-verified on **every single audit call** — no cache, no writable lockfile.
 
 Key checks performed during response validation:
 
@@ -217,7 +217,7 @@ Key checks performed during response validation:
 | **Code Exfiltration** | Detects if the LLM's response contains references to internal class names, functions, module imports, or architecture details |
 | **Action Hallucination** | Catches the LLM claiming to "analyze", "process", or "examine" something when it's only generating text |
 
-> **⚠️ Threat Model:** In-process hardware memory protection defeats all standard Python-level bypass techniques (`type.__setattr__`, `ctypes.pythonapi`, `_STATE` mutation, lockfile overwrite). Both `core_safety.py` and `conscience.py` use closure-based seals frozen into hardware-protected memory. For adversarial scenarios where the attacker has full code execution access within the same process, use the **Out-of-Process** mode (`sovereign-shield-daemon`) which provides a true process-boundary security seal.
+> **⚠️ Threat Model:** In-process OS memory protection defeats all standard Python-level bypass techniques (`type.__setattr__`, `ctypes.pythonapi`, `_STATE` mutation, lockfile overwrite). Both `core_safety.py` and `conscience.py` use closure-based seals frozen into OS-protected memory. For adversarial scenarios where the attacker has full code execution access within the same process, use the **Out-of-Process** mode (`sovereign-shield-daemon`) which provides a true process-boundary security seal.
 
 ---
 
@@ -255,7 +255,7 @@ hitl.execute_approved(result["approval_id"], "DEPLOY", "production-server")
 
 ### 6. MultiModalFilter
 
-Validates file uploads via binary analysis. Pure Python, zero dependencies.
+Validates file uploads via binary analysis. Pure Python, minimal dependencies (API optional).
 
 ```python
 from sovereign_shield import MultiModalFilter
@@ -651,7 +651,7 @@ Full dataset from the HackAPrompt competition, run through the deterministic lay
 
 ### 2.4.5 (Hardware Seal Raw Payload Fix)
 
-- **Hardware seal payload logic:** Fixed a critical architectural bug where `conscience.py` inadvertently froze the SHA-256 hash of its source into hardware memory instead of the raw payload bytes, causing `_hw_verify` (which computes the hash of the buffer) to falsely trigger an integrity violation.
+- **Hardware seal payload logic:** Fixed a critical architectural bug where `conscience.py` inadvertently froze the SHA-256 hash of its source into OS memory instead of the raw payload bytes, causing `_hw_verify` (which computes the hash of the buffer) to falsely trigger an integrity violation.
 
 ### 2.4.4 (AEGIS Security Audit Remediation — General Fixes)
 
@@ -665,16 +665,16 @@ Full dataset from the HackAPrompt competition, run through the deterministic lay
 - **Root cause:** Natural language injection phrases contain filler words (articles, adjectives) that break exact substring matching. Verb inflections change word endings based on grammatical case. Some languages merge "system prompt" into a single compound word not present in the keyword list.
 - **Fix applied to both the open-source package and the SaaS API.** Both copies are now in sync.
 
-### 2.4.2 (Conscience Hardware Memory Protection)
+### 2.4.2 (Conscience OS Memory Protection)
 
-- **conscience.py hardened:** Replaced the writable `.conscience_lock` lockfile with the same closure-based hardware memory seal used by `core_safety.py`. The SHA-256 hash is now computed at import time, frozen into OS read-only memory via `mprotect`/`VirtualProtect`, and re-verified on every `evaluate_action()` call. No cache, no lockfile, no class attributes vulnerable to `type.__setattr__`.
+- **conscience.py hardened:** Replaced the writable `.conscience_lock` lockfile with the same closure-based OS memory seal used by `core_safety.py`. The SHA-256 hash is now computed at import time, frozen into OS read-only memory via `mprotect`/`VirtualProtect`, and re-verified on every `evaluate_action()` call. No cache, no lockfile, no class attributes vulnerable to `type.__setattr__`.
 
-### 2.4.1 (AEGIS Security Assessment Remediation — Hardware Memory Protection)
+### 2.4.1 (AEGIS Security Assessment Remediation — OS Memory Protection)
 
-Following a white-box security assessment by **Kenneth Tannenbaum of the [AEGIS Initiative](https://aegis-initiative.com)**, which identified bypass vectors in the SHA-256 integrity seal and Python-level `FrozenNamespace` metaclass, v2.4.1 backports OS-level hardware memory protection from `sovereign-mcp` into the standard SovereignShield package to defeat all reported attack vectors.
+Following a white-box security assessment by **Kenneth Tannenbaum of the [AEGIS Initiative](https://aegis-initiative.com)**, which identified bypass vectors in the SHA-256 integrity seal and Python-level `FrozenNamespace` metaclass, v2.4.1 backports OS-level OS memory protection from `sovereign-mcp` into the standard SovereignShield package to defeat all reported attack vectors.
 
-- **Hardware-frozen security constants:** Security constants (`ALLOW_SHELL_EXECUTION`, `ALLOW_FILE_DELETION`, etc.) are now serialized and frozen into OS read-only memory pages via `mprotect` (Linux/macOS) or `VirtualProtect` (Windows). Any write attempt — from Python, `ctypes`, C extensions, or assembly — triggers a CPU hardware fault and immediate process termination. The `type.__setattr__` bypass (AEGIS Finding 1) is completely defeated.
-- **Hardware-frozen integrity hash:** The source file SHA-256 hash is stored in a hardware-protected memory page instead of a writable `.core_safety_lock` file. Cache poisoning via `_STATE` mutation (AEGIS Finding 2) and lockfile overwrite (AEGIS Finding 4) are eliminated.
+- **OS-frozen security constants:** Security constants (`ALLOW_SHELL_EXECUTION`, `ALLOW_FILE_DELETION`, etc.) are now serialized and frozen into OS read-only memory pages via `mprotect` (Linux/macOS) or `VirtualProtect` (Windows). Any write attempt — from Python, `ctypes`, C extensions, or assembly — triggers a CPU hardware fault and immediate process termination. The `type.__setattr__` bypass (AEGIS Finding 1) is completely defeated.
+- **OS-frozen integrity hash:** The source file SHA-256 hash is stored in a hardware-protected memory page instead of a writable `.core_safety_lock` file. Cache poisoning via `_STATE` mutation (AEGIS Finding 2) and lockfile overwrite (AEGIS Finding 4) are eliminated.
 - **Cache eliminated:** The 60-second integrity check cache has been completely removed. The source file is re-read and re-hashed on every single `audit_action()` call (<1ms overhead).
 - **Closure-encapsulated verification:** Security verification functions are module-level closures that read directly from hardware-frozen memory. Replacing class methods via `type.__setattr__` (AEGIS Finding 5) has no effect — `audit_action()` calls the closure, not the class method.
 - **Test suite:** Added `tests/test_sovereign_shield.py` — comprehensive test suite covering InputFilter, CoreSafety, Conscience, VetoShield, and immutability bypass resistance.
@@ -738,7 +738,7 @@ Following a white-box security assessment by **Kenneth Tannenbaum of the [AEGIS 
 
 ## Acknowledgments
 
-- **Kenneth Tannenbaum** ([AEGIS Initiative](https://aegis-initiative.com)) — White-box security assessment (March 2026) that identified bypass vectors in the SHA-256 integrity seal and FrozenNamespace metaclass, prompting the backport of hardware memory protection from sovereign-mcp into the standard SovereignShield package.
+- **Kenneth Tannenbaum** ([AEGIS Initiative](https://aegis-initiative.com)) — White-box security assessment (March 2026) that identified bypass vectors in the SHA-256 integrity seal and FrozenNamespace metaclass, prompting the backport of OS memory protection from sovereign-mcp into the standard SovereignShield package.
 
 ---
 

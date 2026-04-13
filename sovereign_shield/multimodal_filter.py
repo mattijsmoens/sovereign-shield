@@ -248,7 +248,7 @@ class MultiModalFilter:
 
         # Use InputFilter if available for comprehensive checking
         if self._input_filter:
-            is_safe, result = self._input_filter.process(text)
+            is_safe, result, _suspicion = self._input_filter.process(text)
             if not is_safe:
                 logger.warning(
                     f"[MultiModalFilter] Blocked extracted text from {source}: "

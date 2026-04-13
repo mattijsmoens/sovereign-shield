@@ -359,7 +359,7 @@ class AdaptiveShield:
         start = time.perf_counter()
 
         # Layer 1: Built-in filter (includes multi-decode + multilingual)
-        is_safe, result = self._filter.process(text)
+        is_safe, result, _suspicion = self._filter.process(text)
 
         # Layer 2a: Custom adaptive rules (require 2+ matches to reduce FP)
         if is_safe and self._custom_rules:

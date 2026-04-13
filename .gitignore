@@ -25,6 +25,7 @@ daily_usage.txt
 .conscience_lock
 _test_lora_data/
 _test_truth_data/
+_test_data/
 data/
 
 # Test & Training scripts (root only — tests/ directory is tracked)

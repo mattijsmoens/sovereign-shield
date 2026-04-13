@@ -89,7 +89,7 @@ class SecurityHandler(BaseHTTPRequestHandler):
                     return
             else:
                 # Deterministic fallback mode (Sub-millisecond)
-                is_safe, result_reason = input_filter.process(target_input)
+                is_safe, result_reason, _suspicion = input_filter.process(target_input)
                 if not is_safe:
                     self._respond(False, f"InputFilter Blocked: {result_reason}")
                     return

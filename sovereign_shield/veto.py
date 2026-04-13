@@ -203,7 +203,7 @@ class VetoShield:
     def _deterministic_scan(self, text: str) -> Dict[str, Any]:
         """Run input through all deterministic layers."""
         # Layer 1: InputFilter — returns (is_safe: bool, result: str)
-        is_safe, result = self._input_filter.process(text)
+        is_safe, result, suspicion_score = self._input_filter.process(text)
         if not is_safe:
             return {
                 "allowed": False,

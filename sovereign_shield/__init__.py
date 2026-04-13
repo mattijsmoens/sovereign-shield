@@ -2,7 +2,7 @@
 Sovereign Shield — Production-grade AI defense suite.
 
 Deterministic pre-execution security for autonomous AI systems.
-Zero external dependencies. Pure Python stdlib.
+Minimal dependencies. Optional API integrations.
 
 Usage:
     from sovereign_shield import VetoShield, CoreSafety, Conscience
@@ -15,7 +15,7 @@ Usage:
     # Deterministic-only
     from sovereign_shield import InputFilter, Firewall
     f = InputFilter()
-    is_safe, result = f.process("user input")
+    is_safe, result, score = f.process("user input")
 """
 
 from sovereign_shield.veto import VetoShield
@@ -43,4 +43,4 @@ __all__ = [
     "MultiModalFilter",
     "TruthGuard",
 ]
-__version__ = "2.4.6"
+__version__ = "3.0.0"

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sovereign-shield"
-version = "2.4.6"
-description = "Production-grade AI defense — deterministic filters + optional LLM veto + HITL approval + file validation + hallucination detection. Hardware-enforced immutability."
+version = "3.0.0"
+description = "Production-grade AI defense — hybrid deterministic filters + optional LLM veto + HITL approval + file validation + hallucination detection. OS-enforced immutability."
 readme = "README.md"
 license = {file = "LICENSE"}
 requires-python = ">=3.8"
@@ -25,7 +25,7 @@ keywords = [
     "self-improving",
     "adaptive-learning",
     "multilingual-security",
-    "hardware-memory-protection"
+    "os-memory-protection"
 ]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
