@@ -501,9 +501,10 @@ Zero-cost, fully offline. Uses stdlib `urllib` to call the local Ollama API. No 
 
 | Parameter | Default | Description |
 | --------- | ------- | ----------- |
-| `provider` | `None` | Any `LLMProvider` instance (Gemini, OpenAI, Ollama, custom). If `None`, runs deterministic-only. |
+| `provider` | `None` | Primary `LLMProvider` instance (Gemini, OpenAI, Ollama, custom). If `None`, runs deterministic-only. |
 | `provider_b` | `None` | Secondary `LLMProvider` instance for dual consensus mode. Must be a different model than `provider`. |
-| `dual_consensus` | `False` | Enable strict cryptographic dual-model consensus verification. Blocks if models disagree. |
+| `consensus_providers` | `[]` | List of additional `LLMProvider` instances for N-model consensus. All models must be distinct. |
+| `dual_consensus` | `False` | Enable strict cryptographic multi-model consensus verification. Blocks if models disagree. |
 | `db_path` | `"adaptive.db"` | AdaptiveShield database path. Set to `None` to disable adaptive learning. |
 | `fail_closed` | `True` | Block on LLM errors/timeouts. Set to `False` to fall back to deterministic-only on LLM failure. |
 | `timeout` | `5.0` | LLM call timeout in seconds. |

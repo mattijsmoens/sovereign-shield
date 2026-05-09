@@ -42,6 +42,7 @@ class VetoShield:
         provider: Optional[LLMProvider] = None,
         provider_b: Optional[LLMProvider] = None,
         dual_consensus: bool = False,
+        consensus_providers: Optional[list] = None,
         db_path: str = "adaptive.db",
         fail_closed: bool = True,
         timeout: float = 5.0,
@@ -51,18 +52,33 @@ class VetoShield:
         self.provider = provider
         self.provider_b = provider_b
         self.dual_consensus = dual_consensus
+        self.consensus_providers = consensus_providers or []
         self.fail_closed = fail_closed
         self.timeout = timeout
         self.max_retries = max_retries
         self.skip_llm_for_blocked = skip_llm_for_blocked
 
-        if self.dual_consensus:
-            if not self.provider or not self.provider_b:
-                raise ValueError("Dual consensus requires both provider and provider_b to be set.")
-            if self.provider.name == self.provider_b.name:
+        self.providers = []
+        if self.provider:
+            self.providers.append(self.provider)
+
+        # Enable consensus mode if dual_consensus is requested OR extra providers are supplied
+        if self.dual_consensus or self.provider_b or self.consensus_providers:
+            self.dual_consensus = True
+            if self.provider_b:
+                self.providers.append(self.provider_b)
+            if self.consensus_providers:
+                self.providers.extend(self.consensus_providers)
+            
+            if len(self.providers) < 2:
+                raise ValueError("Consensus mode requires at least two distinct providers.")
+            
+            # Enforce Model Diversity
+            names = [p.name for p in self.providers]
+            if len(names) != len(set(names)):
                 raise ValueError(
-                    f"CONSENSUS INTEGRITY VIOLATION: Model A and Model B must be different. "
-                    f"Both are '{self.provider.name}'."
+                    f"CONSENSUS INTEGRITY VIOLATION: All models must be distinct to ensure true consensus. "
+                    f"Provided models: {names}"
                 )
 
         # Initialize deterministic layers
@@ -156,39 +172,38 @@ class VetoShield:
         try:
             if self.dual_consensus:
                 import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-                    future_a = executor.submit(fetch_with_retry, self.provider)
-                    future_b = executor.submit(fetch_with_retry, self.provider_b)
-                    llm_response_a = future_a.result()
-                    llm_response_b = future_b.result()
+                with concurrent.futures.ThreadPoolExecutor(max_workers=len(self.providers)) as executor:
+                    futures = [executor.submit(fetch_with_retry, p) for p in self.providers]
+                    llm_responses = [f.result() for f in futures]
                 
-                verdict_a, reason_a = self._validate_llm_response(llm_response_a)
-                verdict_b, reason_b = self._validate_llm_response(llm_response_b)
+                verdicts_and_reasons = [self._validate_llm_response(r) for r in llm_responses]
+                verdicts = [v for v, r in verdicts_and_reasons]
                 
                 # ─── Deterministic Hash Verification (Sovereign-MCP style) ───
-                hash_a = hashlib.sha256(verdict_a.encode("utf-8")).hexdigest()
-                hash_b = hashlib.sha256(verdict_b.encode("utf-8")).hexdigest()
-                hashes_match = hmac.compare_digest(hash_a, hash_b)
+                hashes = [hashlib.sha256(v.encode("utf-8")).hexdigest() for v in verdicts]
+                base_hash = hashes[0]
+                hashes_match = all(hmac.compare_digest(base_hash, h) for h in hashes[1:])
                 
                 elapsed = (time.time() - start) * 1000
+                responses_str = " | ".join(f"M{i+1}: {r}" for i, r in enumerate(llm_responses))
                 
-                if hashes_match and verdict_a == "SAFE":
+                if hashes_match and verdicts[0] == "SAFE":
                     self._stats["llm_allows"] += 1
                     return {
                         "allowed": True,
                         "layer": "llm_veto",
-                        "reason": f"SAFE (Consensus Match: {hash_a[:8]})",
-                        "llm_response": f"A: {llm_response_a} | B: {llm_response_b}",
+                        "reason": f"SAFE (Consensus Match: {base_hash[:8]})",
+                        "llm_response": responses_str,
                         "llm_validated": True,
                         "latency_ms": round(elapsed, 1),
                     }
-                elif hashes_match and verdict_a == "UNSAFE":
+                elif hashes_match and verdicts[0] == "UNSAFE":
                     self._stats["llm_blocks"] += 1
                     return {
                         "allowed": False,
                         "layer": "llm_veto",
-                        "reason": f"UNSAFE (Consensus Match: {hash_a[:8]})",
-                        "llm_response": f"A: {llm_response_a} | B: {llm_response_b}",
+                        "reason": f"UNSAFE (Consensus Match: {base_hash[:8]})",
+                        "llm_response": responses_str,
                         "llm_validated": True,
                         "latency_ms": round(elapsed, 1),
                     }
@@ -197,8 +212,8 @@ class VetoShield:
                     return {
                         "allowed": False,
                         "layer": "llm_veto",
-                        "reason": f"Consensus MISMATCH. Hash A: {hash_a[:8]}, Hash B: {hash_b[:8]}",
-                        "llm_response": f"A: {llm_response_a} | B: {llm_response_b}",
+                        "reason": f"Consensus MISMATCH. Hashes: {[h[:8] for h in hashes]}",
+                        "llm_response": responses_str,
                         "llm_validated": True,
                         "latency_ms": round(elapsed, 1),
                     }
@@ -208,8 +223,8 @@ class VetoShield:
                     return {
                         "allowed": False,
                         "layer": "llm_veto",
-                        "reason": f"VETOED (Validation failed on both models). A: {verdict_a}, B: {verdict_b}",
-                        "llm_response": f"A: {llm_response_a} | B: {llm_response_b}",
+                        "reason": f"VETOED (Validation failed). Verdicts: {verdicts}",
+                        "llm_response": responses_str,
                         "llm_validated": False,
                         "latency_ms": round(elapsed, 1),
                     }
