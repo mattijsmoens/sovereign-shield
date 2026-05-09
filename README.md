@@ -1,6 +1,6 @@
 # Sovereign Shield
 
-**Production-grade AI defense: deterministic + LLM veto + HITL approval + file validation + hallucination detection.**
+**Production-grade AI defense: deterministic filters + dual LLM cryptographic consensus + HITL approval + file validation + hallucination detection.**
 
 [![PyPI](https://img.shields.io/pypi/v/sovereign-shield.svg)](https://pypi.org/project/sovereign-shield/)
 [![License](https://img.shields.io/badge/license-BSL%201.1-blue.svg)](LICENSE)
