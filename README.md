@@ -19,19 +19,19 @@
 
 **This is the defense system I use in my own autonomous AI agent — running 24/7, processing untrusted input continuously.** It's not a prototype — it's battle-tested, real-world security extracted from a live production system and packaged for any AI application to use.
 
-The architecture is a **Hybrid Security Matrix**, combining blistering fast deterministic logic with mathematically enforced LLM consensus. Every decision flows through a multi-tiered validation pipeline:
+The architecture is **fundamentally deterministic from top to bottom**. Even the semantic intelligence of the LLMs is mathematically constrained into a deterministic state via cryptographic verification. Every decision flows through a strict validation pipeline:
 
 1. **Deterministic Filters** (keyword, encoding, pattern detection) → blocks obvious attacks instantly
 2. **AdaptiveShield** (self-learning keyword engine, validated against historical benign traffic)
 3. **Dual Consensus Veto** *(optional)* → cryptographic SHA-256 agreement between two independent LLMs ("SAFE" vs "UNSAFE")
-4. **Output Deterministic Validation** → CoreSafety + Conscience checks applied to the LLM's own verdict
+4. **Output Deterministic Validation** → CoreSafety + Conscience checks applied to the LLMs' own verdict
 
 > [!IMPORTANT]
-> **Semantic Integrity via Dual Consensus:** Sovereign Shield supports single-LLM validation, but for high-assurance environments, it employs **Dual Consensus Verification**. Two distinct LLM models run concurrently. Their unstructured output verdicts are cryptographically hashed and compared in constant time. A single mismatch, a timeout, or a hallucination instantly triggers a fail-closed veto.
+> **Deterministic LLM Consensus:** Sovereign Shield supports single-LLM validation, but for high-assurance environments, it employs **Dual Consensus Verification**. Two distinct LLM models run concurrently. Rather than loosely evaluating their answers, their unstructured output verdicts are cryptographically hashed and compared in constant time. A single byte of mismatch in the hashes, a timeout, or a hallucination instantly triggers a fail-closed veto. This forces probabilistic LLMs to behave as a strictly deterministic security gate.
 
-Even with dual LLMs running, the LLM is never the final authority. If the `VetoShield` is enabled and both models get jailbroken or hijacked into agreeing, the deterministic output layer catches the malicious syntax in their response and blocks it. The LLMs can never override the deterministic constitution.
+Even with dual LLMs running, the LLM is never the final authority. If the `VetoShield` is enabled and both models get jailbroken or hijacked into mathematically agreeing, the deterministic output layer catches the malicious syntax in their response and blocks it. The LLMs can never override the deterministic constitution.
 
-**The result: deterministic speed for obvious attacks, cryptographic LLM consensus for subtle semantic ones, and deterministic authority over everything — including the LLMs themselves.**
+**The result: lightning-fast deterministic rules for obvious attacks, strict cryptographic hash consensus for semantic ones, and absolute deterministic authority over everything — including the LLMs themselves.**
 
 ---
 
