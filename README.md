@@ -502,6 +502,8 @@ Zero-cost, fully offline. Uses stdlib `urllib` to call the local Ollama API. No 
 | Parameter | Default | Description |
 | --------- | ------- | ----------- |
 | `provider` | `None` | Any `LLMProvider` instance (Gemini, OpenAI, Ollama, custom). If `None`, runs deterministic-only. |
+| `provider_b` | `None` | Secondary `LLMProvider` instance for dual consensus mode. Must be a different model than `provider`. |
+| `dual_consensus` | `False` | Enable strict cryptographic dual-model consensus verification. Blocks if models disagree. |
 | `db_path` | `"adaptive.db"` | AdaptiveShield database path. Set to `None` to disable adaptive learning. |
 | `fail_closed` | `True` | Block on LLM errors/timeouts. Set to `False` to fall back to deterministic-only on LLM failure. |
 | `timeout` | `5.0` | LLM call timeout in seconds. |
@@ -648,6 +650,13 @@ Full dataset from the HackAPrompt competition, run through the deterministic lay
 > **Note:** The SaaS API retrains from scratch via its self-learning pipeline. The numbers above are from the initial HackAPrompt training run and serve as a reference benchmark. The live system continuously learns and improves.
 
 ## Changelog
+
+### 3.1.0 (Dual Consensus Verification)
+
+- **Dual-Model Consensus:** Integrated the dual consensus verification architecture from `sovereign-mcp` directly into `VetoShield`. You can now pass `provider` and `provider_b` along with `dual_consensus=True`.
+- **Cryptographic Hash Checking:** Employs strict SHA-256 canonical hashing of verdicts to deterministically enforce consensus.
+- **Concurrent Execution:** Executes both LLM verification requests concurrently using thread pools to maintain sub-millisecond overhead.
+- **Model Diversity:** Actively prevents identical model configurations to ensure true consensus.
 
 ### 2.4.5 (Hardware Seal Raw Payload Fix)
 

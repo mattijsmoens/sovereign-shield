@@ -12,6 +12,8 @@ Flow:
 import re
 import time
 import logging
+import hashlib
+import hmac
 from typing import Dict, Any, Optional
 
 from sovereign_shield.providers.base import LLMProvider
@@ -38,6 +40,8 @@ class VetoShield:
     def __init__(
         self,
         provider: Optional[LLMProvider] = None,
+        provider_b: Optional[LLMProvider] = None,
+        dual_consensus: bool = False,
         db_path: str = "adaptive.db",
         fail_closed: bool = True,
         timeout: float = 5.0,
@@ -45,10 +49,21 @@ class VetoShield:
         skip_llm_for_blocked: bool = True,
     ):
         self.provider = provider
+        self.provider_b = provider_b
+        self.dual_consensus = dual_consensus
         self.fail_closed = fail_closed
         self.timeout = timeout
         self.max_retries = max_retries
         self.skip_llm_for_blocked = skip_llm_for_blocked
+
+        if self.dual_consensus:
+            if not self.provider or not self.provider_b:
+                raise ValueError("Dual consensus requires both provider and provider_b to be set.")
+            if self.provider.name == self.provider_b.name:
+                raise ValueError(
+                    f"CONSENSUS INTEGRITY VIOLATION: Model A and Model B must be different. "
+                    f"Both are '{self.provider.name}'."
+                )
 
         # Initialize deterministic layers
         from sovereign_shield.input_filter import InputFilter
@@ -77,6 +92,7 @@ class VetoShield:
             "llm_allows": 0,
             "llm_errors": 0,
             "validation_vetoes": 0,
+            "consensus_mismatches": 0,
         }
 
     def scan(self, text: str) -> Dict[str, Any]:
@@ -124,23 +140,117 @@ class VetoShield:
                 "latency_ms": round(elapsed, 1),
             }
 
-        llm_response = None
-        last_error = None
-        attempts = 1 + self.max_retries
+        def fetch_with_retry(prov: LLMProvider) -> str:
+            last_error = None
+            attempts = 1 + self.max_retries
+            for attempt in range(attempts):
+                try:
+                    return prov.verify(text)
+                except Exception as e:
+                    last_error = e
+                    logger.warning(f"LLM provider error ({prov.name}, attempt {attempt + 1}/{attempts}): {e}")
+                    if attempt < attempts - 1:
+                        time.sleep(0.5 * (attempt + 1))  # Backoff
+            raise last_error
 
-        for attempt in range(attempts):
-            try:
-                llm_response = self.provider.verify(text)
-                last_error = None
-                break  # Success
-            except Exception as e:
-                last_error = e
-                logger.warning(f"LLM provider error (attempt {attempt + 1}/{attempts}): {e}")
-                if attempt < attempts - 1:
-                    time.sleep(0.5 * (attempt + 1))  # Backoff
+        try:
+            if self.dual_consensus:
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                    future_a = executor.submit(fetch_with_retry, self.provider)
+                    future_b = executor.submit(fetch_with_retry, self.provider_b)
+                    llm_response_a = future_a.result()
+                    llm_response_b = future_b.result()
+                
+                verdict_a, reason_a = self._validate_llm_response(llm_response_a)
+                verdict_b, reason_b = self._validate_llm_response(llm_response_b)
+                
+                # ─── Deterministic Hash Verification (Sovereign-MCP style) ───
+                hash_a = hashlib.sha256(verdict_a.encode("utf-8")).hexdigest()
+                hash_b = hashlib.sha256(verdict_b.encode("utf-8")).hexdigest()
+                hashes_match = hmac.compare_digest(hash_a, hash_b)
+                
+                elapsed = (time.time() - start) * 1000
+                
+                if hashes_match and verdict_a == "SAFE":
+                    self._stats["llm_allows"] += 1
+                    return {
+                        "allowed": True,
+                        "layer": "llm_veto",
+                        "reason": f"SAFE (Consensus Match: {hash_a[:8]})",
+                        "llm_response": f"A: {llm_response_a} | B: {llm_response_b}",
+                        "llm_validated": True,
+                        "latency_ms": round(elapsed, 1),
+                    }
+                elif hashes_match and verdict_a == "UNSAFE":
+                    self._stats["llm_blocks"] += 1
+                    return {
+                        "allowed": False,
+                        "layer": "llm_veto",
+                        "reason": f"UNSAFE (Consensus Match: {hash_a[:8]})",
+                        "llm_response": f"A: {llm_response_a} | B: {llm_response_b}",
+                        "llm_validated": True,
+                        "latency_ms": round(elapsed, 1),
+                    }
+                elif not hashes_match:
+                    self._stats["consensus_mismatches"] += 1
+                    return {
+                        "allowed": False,
+                        "layer": "llm_veto",
+                        "reason": f"Consensus MISMATCH. Hash A: {hash_a[:8]}, Hash B: {hash_b[:8]}",
+                        "llm_response": f"A: {llm_response_a} | B: {llm_response_b}",
+                        "llm_validated": True,
+                        "latency_ms": round(elapsed, 1),
+                    }
+                else:
+                    # hashes match but verdict is VETOED
+                    self._stats["validation_vetoes"] += 1
+                    return {
+                        "allowed": False,
+                        "layer": "llm_veto",
+                        "reason": f"VETOED (Validation failed on both models). A: {verdict_a}, B: {verdict_b}",
+                        "llm_response": f"A: {llm_response_a} | B: {llm_response_b}",
+                        "llm_validated": False,
+                        "latency_ms": round(elapsed, 1),
+                    }
+            else:
+                llm_response = fetch_with_retry(self.provider)
+                verdict, validation_reason = self._validate_llm_response(llm_response)
+                
+                elapsed = (time.time() - start) * 1000
+                
+                if verdict == "SAFE":
+                    self._stats["llm_allows"] += 1
+                    return {
+                        "allowed": True,
+                        "layer": "llm_veto",
+                        "reason": "SAFE",
+                        "llm_response": llm_response,
+                        "llm_validated": True,
+                        "latency_ms": round(elapsed, 1),
+                    }
+                elif verdict == "UNSAFE":
+                    self._stats["llm_blocks"] += 1
+                    return {
+                        "allowed": False,
+                        "layer": "llm_veto",
+                        "reason": f"LLM verdict: UNSAFE",
+                        "llm_response": llm_response,
+                        "llm_validated": True,
+                        "latency_ms": round(elapsed, 1),
+                    }
+                else:
+                    self._stats["validation_vetoes"] += 1
+                    return {
+                        "allowed": False,
+                        "layer": "llm_veto",
+                        "reason": f"LLM response vetoed: {validation_reason}",
+                        "llm_response": llm_response,
+                        "llm_validated": False,
+                        "latency_ms": round(elapsed, 1),
+                    }
 
-        if last_error is not None:
-            # All retries exhausted
+        except Exception as e:
             self._stats["llm_errors"] += 1
             elapsed = (time.time() - start) * 1000
 
@@ -148,7 +258,7 @@ class VetoShield:
                 return {
                     "allowed": False,
                     "layer": "llm_veto",
-                    "reason": f"LLM error after {attempts} attempt(s) (fail-closed): {last_error}",
+                    "reason": f"LLM error (fail-closed): {e}",
                     "llm_response": None,
                     "llm_validated": False,
                     "latency_ms": round(elapsed, 1),
@@ -162,43 +272,6 @@ class VetoShield:
                     "llm_validated": False,
                     "latency_ms": round(elapsed, 1),
                 }
-
-        # ─── Tier 2.5: Validate LLM's own response ───
-        verdict, validation_reason = self._validate_llm_response(llm_response)
-
-        elapsed = (time.time() - start) * 1000
-
-        if verdict == "SAFE":
-            self._stats["llm_allows"] += 1
-            return {
-                "allowed": True,
-                "layer": "llm_veto",
-                "reason": "SAFE",
-                "llm_response": llm_response,
-                "llm_validated": True,
-                "latency_ms": round(elapsed, 1),
-            }
-        elif verdict == "UNSAFE":
-            self._stats["llm_blocks"] += 1
-            return {
-                "allowed": False,
-                "layer": "llm_veto",
-                "reason": f"LLM verdict: UNSAFE",
-                "llm_response": llm_response,
-                "llm_validated": True,
-                "latency_ms": round(elapsed, 1),
-            }
-        else:
-            # Validation failed — LLM response was suspicious or unparseable
-            self._stats["validation_vetoes"] += 1
-            return {
-                "allowed": False,
-                "layer": "llm_veto",
-                "reason": f"LLM response vetoed: {validation_reason}",
-                "llm_response": llm_response,
-                "llm_validated": False,
-                "latency_ms": round(elapsed, 1),
-            }
 
     def _deterministic_scan(self, text: str) -> Dict[str, Any]:
         """Run input through all deterministic layers."""
