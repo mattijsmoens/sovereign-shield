@@ -19,19 +19,19 @@
 
 **This is the defense system I use in my own autonomous AI agent — running 24/7, processing untrusted input continuously.** It's not a prototype — it's battle-tested, real-world security extracted from a live production system and packaged for any AI application to use.
 
-The architecture is **deterministic at its core**. The LLM is an **optional** middle layer — not the final authority. Every decision flows through deterministic validation:
+The architecture is a **Hybrid Security Matrix**, combining blistering fast deterministic logic with mathematically enforced LLM consensus. Every decision flows through a multi-tiered validation pipeline:
 
-1. **Input → Deterministic filters** (keyword, encoding, pattern detection) → blocks obvious attacks instantly
-2. **Passed inputs → AdaptiveShield** (self-learning keyword engine, validated against historical benign traffic)
-3. **Passed inputs → LLM verification** *(optional)* — "Is this SAFE or UNSAFE?"
-4. **LLM response → Deterministic validation** (CoreSafety + Conscience checks on the LLM's own output)
+1. **Deterministic Filters** (keyword, encoding, pattern detection) → blocks obvious attacks instantly
+2. **AdaptiveShield** (self-learning keyword engine, validated against historical benign traffic)
+3. **Dual Consensus Veto** *(optional)* → cryptographic SHA-256 agreement between two independent LLMs ("SAFE" vs "UNSAFE")
+4. **Output Deterministic Validation** → CoreSafety + Conscience checks applied to the LLM's own verdict
 
-> [!WARNING]
-> **Deterministic-Only Mode Limitations:** If you do not configure an LLM provider, Sovereign Shield runs in **deterministic-only mode** (InputFilter + AdaptiveShield). While this provides blazing-fast protection against direct prompt injections, jailbreaks (DAN, Developer Mode), and specific system commands (e.g. `curl|bash`), **it fundamentally cannot catch semantic attacks**. Social engineering, logic-flaw data exfiltration, and obfuscated indirect injections *require* intent analysis, which is only provided by the LLM-powered `VetoShield` layer.
+> [!IMPORTANT]
+> **Semantic Integrity via Dual Consensus:** Sovereign Shield supports single-LLM validation, but for high-assurance environments, it employs **Dual Consensus Verification**. Two distinct LLM models run concurrently. Their unstructured output verdicts are cryptographically hashed and compared in constant time. A single mismatch, a timeout, or a hallucination instantly triggers a fail-closed veto.
 
-If the `VetoShield` is enabled and hallucinates, gets jailbroken, or errors out — **the deterministic layer catches it and blocks it**. The LLM can never override the deterministic rules. This means the system combines deterministic authority with LLM intelligence — not the other way around.
+Even with dual LLMs running, the LLM is never the final authority. If the `VetoShield` is enabled and both models get jailbroken or hijacked into agreeing, the deterministic output layer catches the malicious syntax in their response and blocks it. The LLMs can never override the deterministic constitution.
 
-**The result: deterministic speed for obvious attacks, LLM intelligence for subtle ones, and deterministic authority over everything — including the LLM itself.**
+**The result: deterministic speed for obvious attacks, cryptographic LLM consensus for subtle semantic ones, and deterministic authority over everything — including the LLMs themselves.**
 
 ---
 
